@@ -10,7 +10,7 @@ Installing from source
 
 ```
 git clone https://github.com/guifcoelho/pygenopt
-cd pygenopt && pip install .
+pip install ./pygenopt
 ```
 
 ### Using HiGHS API
