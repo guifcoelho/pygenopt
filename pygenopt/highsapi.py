@@ -4,7 +4,7 @@ from typing import Any, Optional
 import highspy
 
 from pygenopt import (
-    LinearExpression, Variable, LinearConstraint, ConstraintSign, SolverApi, VarType
+    LinearExpression, Variable, LinearConstraint, ConstraintSign, SolverApi, VarType, SolveStatus
 )
 
 
@@ -16,6 +16,7 @@ class HiGHS(SolverApi):
     def init_model(self):
         self.model = highspy.Highs()
         self.set_option('output_flag', False)
+        return self
 
     def _set_integer_variables(self, variables: list[Variable]):
         integer_variables = [
@@ -46,6 +47,14 @@ class HiGHS(SolverApi):
             [var.upperbound or highspy.kHighsInf for var in variables]
         )
         self._set_integer_variables(variables)
+        return self
+
+    def del_var(self, variable: Variable):
+        self.model.deleteCols(1, [variable.column])
+        return self
+
+    def del_vars(self, variables: list[Variable]):
+        self.model.deleteCols(len(variables), [variable.column for variable in variables])
         return self
 
     def add_constr(self, constr: LinearConstraint):
@@ -94,11 +103,26 @@ class HiGHS(SolverApi):
             self.fetch_duals()
         return self.duals[constraint.row]
 
+    def set_solve_status(self):
+        match self.model.getModelStatus():
+            case highspy.HighsModelStatus.kOptimal:
+                self.solve_status = SolveStatus.OPTIMUM
+            case highspy.HighsModelStatus.kInfeasible:
+                self.solve_status = SolveStatus.INFEASIBLE
+            case highspy.HighsModelStatus.kUnbounded:
+                self.solve_status = SolveStatus.UNBOUNDED
+            case _:
+                self.solve_status = SolveStatus.UNKNOWN
+
     def run(self, options: Optional[dict[str, Any]] = None):
         self.set_option('output_flag', True)
-
         for key, val in (options or dict()).items():
             self.model.setOptionValue(key, val)
-
         self.model.run()
+        self.set_solve_status()
+        return self
+
+    def clear(self):
+        super().clear()
+        self.init_model()
         return self

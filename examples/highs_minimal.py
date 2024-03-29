@@ -15,8 +15,9 @@ if __name__ == '__main__':
         .add_constrs(constr1, constr2)
         .set_objective(x1 + x2)
         .set_options({'presolve': 'off'})
-        .run(HiGHS)
+        .set_solver(HiGHS)
+        .run()
+        .del_var(x2)
+        .run()
         .fetch_solution()
     )
-
-    print(x1.value, x2.value)

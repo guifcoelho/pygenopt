@@ -1,7 +1,9 @@
-from enum import Enum
+from enum import Enum, auto
 from dataclasses import dataclass, field
 from typing import Optional, Any, Type
 from abc import ABC, abstractmethod
+from contextlib import suppress
+
 
 class ConstraintSign(Enum):
     "The available constraint signs"
@@ -14,6 +16,14 @@ class VarType(Enum):
     BIN = 'bin'
     INT = 'int'
     CNT = 'cnt'
+
+class SolveStatus(Enum):
+    OPTIMUM = 'optimum'
+    FEASIBLE = 'feasible'
+    UNBOUNDED = 'unbounded'
+    INFEASIBLE = 'infeasible'
+    NOT_SOLVED = 'not_solved'
+    UNKNOWN = 'unknown'
 
 class LinearConstraint:
     "The linear constraint class"
@@ -40,7 +50,7 @@ class LinearConstraint:
 @dataclass
 class LinearExpression:
     "A wrapper for general expressions"
-    elements: dict[str, float] = field(default_factory=dict, init=False)
+    elements: dict['Variable', float] = field(default_factory=dict, init=False)
     constant: float = field(default=0, init=False)
 
     def copy(self):
@@ -181,13 +191,17 @@ class Variable:
 class Model:
     "The optimization model class"
 
-    name: str = ""
+    name: str = None
+    solver: 'SolverApi' = field(default=None)
     options: dict[str, Any] = field(default_factory=dict)
     variables: list[Variable] = field(default_factory=list, init=False)
+    pending_variables: list[Variable] = field(default_factory=list, init=False)
+    deleting_variables: list[Variable] = field(default_factory=list, init=False)
     constraints: list[LinearConstraint] = field(default_factory=list, init=False)
+    pending_constraints: list[LinearConstraint] = field(default_factory=list, init=False)
     objective_function: LinearExpression = field(default=None, init=False)
     is_minimization: bool = field(default=True, init=False)
-    solver: 'SolverApi' = field(default=None, init=False)
+
 
     def set_option(self, name: str, value):
         "Sets the solver option"
@@ -202,29 +216,62 @@ class Model:
 
     def add_var(self, variable: Variable):
         "Adds a new column to the optimization model."
-        self.variables += [variable]
+        self.pending_variables += [variable]
         return self
 
     def add_vars(self, *variables):
         "Adds some columns to the optimization model."
         if len(variables) == 1 and isinstance(variables[0], (list, tuple)):
             variables = variables[0]
+        self.pending_variables += list(variables)
+        return self
 
+    def del_var(self, variable: Variable | int):
+        """
+        Marks a variable (object ou column index) to be deleted from the model.
+        Run `update_model()` before solving.
+        """
+        if isinstance(variable, int):
+            try:
+                variable = [
+                    var
+                    for var in self.variables
+                    if var.column == variable
+                ][0]
+            except Exception:
+                raise Exception(f"No variable with column index {variable} was added to the model.")
+
+            self.deleting_variables += [variable]
+            return self
+
+        if isinstance(variable, Variable):
+            if variable in self.variables:
+                self.deleting_variables += [variable]
+                with suppress(ValueError):
+                    self.pending_variables.remove(variable)
+                return self
+
+    def del_vars(self, *variables):
+        """
+        Marks a set of variables (objects ou column indexes) to be deleted from the model.
+        Run `update_model()` before solving.
+        """
+        if len(variables) == 1 and isinstance(variables[0], (list, tuple)):
+            variables = variables[0]
         for variable in variables:
-            self.add_var(variable)
-
+            self.del_var(variable)
         return self
 
     def add_constr(self, constr: LinearConstraint):
         "Adds a new constraint to the model."
-        self.constraints += [constr]
+        self.pending_constraints += [constr]
         return self
 
     def add_constrs(self, *constrs):
         "Adds some constraints to the model."
         if len(constrs) == 1 and isinstance(constrs[0], (list, tuple)):
             constrs = constrs[0]
-        self.constraints += list(constrs)
+        self.pending_constraints += list(constrs)
         return self
 
     def set_objective(self, objetive_function: LinearExpression, is_minimization = True):
@@ -237,29 +284,51 @@ class Model:
         self.solver = solver()
         return self
 
-    def build_model(self) -> 'Model':
-        for idx, variable in enumerate(self.variables):
-            variable.column = idx
-        self.solver.add_vars(self.variables)
+    def update_model(self) -> 'Model':
+        """
+        Deletes and adds any pending variables and constraints to the model,
+        and sets the objective function.
+        """
+        for deleting_var in self.deleting_variables:
+            self.solver.del_var(deleting_var)  # model should delete the whole column
+            for idx in range(deleting_var.column + 1, len(self.variables)):
+                self.variables[idx].column -= 1
+            self.variables.remove(deleting_var)
+            for constr_list in [self.constraints, self.pending_constraints]:
+                for constr in constr_list:
+                    with suppress(KeyError):
+                        constr.expression.elements.pop(deleting_var)
+        self.deleting_variables = []
 
-        for idx, constr in enumerate(self.constraints):
-            constr.row = idx
-        self.solver.add_constrs(self.constraints)
+        for idx, variable in enumerate(self.pending_variables):
+            variable.column = idx + len(self.variables)
+        self.solver.add_vars(self.pending_variables)
+        self.variables += self.pending_variables
+        self.pending_variables = []
+
+        for idx, constr in enumerate(self.pending_constraints):
+            constr.row = idx + len(self.constraints)
+        self.solver.add_constrs(self.pending_constraints)
+        self.constraints += self.pending_constraints
+        self.pending_constraints = []
 
         self.solver.set_objective(self.objective_function, self.is_minimization)
 
         return self
 
-    def run(self, solver: 'SolverApi') -> 'Model':
-        "Runs the solver for the optimization problem."
-        self.set_solver(solver).build_model()
+    def run(self) -> 'Model':
+        "Updates and runs the solver for the optimization problem."
+        if self.solver is None:
+            raise Exception("The solver api should be set before solving.")
+        self.update_model()
         self.solver.run(self.options)
         return self
 
     def fetch_solution(self) -> 'Model':
-        self.solver.fetch_solution()
-        for variable in self.variables:
-            variable.value = self.solver.get_solution(variable)
+        if self.solve_status in [SolveStatus.FEASIBLE, SolveStatus.OPTIMUM]:
+            self.solver.fetch_solution()
+            for variable in self.variables:
+                variable.value = self.solver.get_solution(variable)
         return self
 
     def fetch_duals(self) -> 'Model':
@@ -274,10 +343,20 @@ class Model:
     def get_dual(self, constraint: LinearConstraint) -> float | None:
         return self.solver.get_dual(constraint)
 
+    def clear(self):
+        if self.solver is not None:
+            self.solver.clear()
+        return Model(name=self.name, solver=self.solver, options=self.options)
+
+    @property
+    def solve_status(self):
+        return self.solver.solve_status or SolveStatus.NOT_SOLVED
+
 @dataclass
 class SolverApi(ABC):
     solver_name: str = field(default=None, init=False)
     model: Any | None = field(default=None, init=False)
+    solve_status: SolveStatus | None = field(default=None, init=False)
     solution: dict[Variable, float] | None = field(default=None, init=False)
     duals: dict[LinearConstraint, float] | None = field(default=None, init=False)
 
@@ -294,6 +373,16 @@ class SolverApi(ABC):
 
     @abstractmethod
     def add_vars(self, variables: list[Variable]) -> 'SolverApi':
+        ...
+
+    @abstractmethod
+    def del_var(self, variable: Variable) -> 'SolverApi':
+        "Deletes the whole column from the actual optimization model."
+        ...
+
+    @abstractmethod
+    def del_vars(self, variables: list[Variable]) -> 'SolverApi':
+        "Deletes whole columns from the actual optimization model."
         ...
 
     @abstractmethod
@@ -342,5 +431,14 @@ class SolverApi(ABC):
         return self
 
     @abstractmethod
+    def set_solve_status(self) -> 'SolverApi':
+        ...
+
+    @abstractmethod
     def run(self, options: Optional[dict[str, Any]] = None) -> 'SolverApi':
         ...
+
+    def clear(self) -> 'SolverApi':
+        self.solution.clear()
+        self.duals.clear()
+        return self
