@@ -42,7 +42,6 @@ def main():
         }
     )
 
-    # add binary variables x_{ij} and y_{j}
     x = {
         (i,j): opt.Variable(f"x({i},{j})", vartype=opt.VarType.BIN)
         for i in range(NumberItems)
@@ -78,7 +77,6 @@ def main():
         tt_weight = round(sum(ItemWeights[i] for i in items))
         print(f"Bin {bin+1} ({tt_weight} <= {BinCapacity}): {items}")
         assert tt_weight <= BinCapacity
-
 
 if __name__ == '__main__':
     main()

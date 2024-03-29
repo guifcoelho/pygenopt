@@ -1,6 +1,7 @@
 import pygenopt as opt
 from pygenopt.highsapi import HiGHS
 
+
 def main():
     x1 = opt.Variable('x1')
     x2 = opt.Variable('x2')
@@ -11,12 +12,11 @@ def main():
     objective_function = x1 + x2 + 5
 
     m = (
-        opt.Model()
+        opt.Model(name="minimal", solver_api=HiGHS)
         .add_vars(x1, x2)
         .add_constrs(constr1, constr2)
         .set_objective(objective_function, is_minimization=True)
         .set_options({'presolve': 'off'})
-        .set_solver(HiGHS)
         .run()
         .fetch_solution()
     )
