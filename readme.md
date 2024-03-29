@@ -18,5 +18,3 @@ pip install ./pygenopt
 ```
 pip install highspy==[1.5.3 | 1.7.1.dev1] numpy
 ```
-
-Also, see "examples/highs_minimal.py"
