@@ -1,6 +1,7 @@
 from enum import Enum
 from dataclasses import dataclass, field
-from typing import Optional
+from typing import Optional, Any, Type
+from abc import ABC, abstractmethod
 
 class ConstraintSign(Enum):
     "The available constraint signs"
@@ -19,6 +20,8 @@ class LinearConstraint:
     expression: 'LinearExpression'
     sign: ConstraintSign
     name: Optional[str] = None
+    row: Optional[int] = None
+    dual: Optional[float] = None
 
     def __init__(self,
                  constr: 'LinearConstraint | tuple[LinearExpression, ConstraintSign]',
@@ -123,10 +126,16 @@ class Variable:
     "The decicion variable"
 
     name: str
-    column_idx: int = field(default=None, init=False, repr=False)
     vartype: VarType = field(default=VarType.CNT, repr=False)
     lowerbound: float = field(default=None, repr=False)
     upperbound: float = field(default=None, repr=False)
+    column: int = field(default=None, init=False)
+    value: float = field(default=None, init=False)
+
+    def __post_init__(self):
+        if self.vartype == VarType.BIN:
+            self.lowerbound = 0
+            self.upperbound = 1
 
     def __hash__(self):
         return hash(self.name)
@@ -167,3 +176,171 @@ class Variable:
 
     def __pos__(self):
         return LinearExpression() + self
+
+@dataclass
+class Model:
+    "The optimization model class"
+
+    name: str = ""
+    options: dict[str, Any] = field(default_factory=dict)
+    variables: list[Variable] = field(default_factory=list, init=False)
+    constraints: list[LinearConstraint] = field(default_factory=list, init=False)
+    objective_function: LinearExpression = field(default=None, init=False)
+    is_minimization: bool = field(default=True, init=False)
+    solver: 'SolverApi' = field(default=None, init=False)
+
+    def set_option(self, name: str, value):
+        "Sets the solver option"
+        self.options[name] = value
+        return self
+
+    def set_options(self, options: dict[str, Any]):
+        "Sets a some solver options"
+        for key, val in options.items():
+            self.set_option(key, val)
+        return self
+
+    def add_var(self, variable: Variable):
+        "Adds a new column to the optimization model."
+        self.variables += [variable]
+        return self
+
+    def add_vars(self, *variables):
+        "Adds some columns to the optimization model."
+        if len(variables) == 1 and isinstance(variables[0], (list, tuple)):
+            variables = variables[0]
+
+        for variable in variables:
+            self.add_var(variable)
+
+        return self
+
+    def add_constr(self, constr: LinearConstraint):
+        "Adds a new constraint to the model."
+        self.constraints += [constr]
+        return self
+
+    def add_constrs(self, *constrs):
+        "Adds some constraints to the model."
+        if len(constrs) == 1 and isinstance(constrs[0], (list, tuple)):
+            constrs = constrs[0]
+        self.constraints += list(constrs)
+        return self
+
+    def set_objective(self, objetive_function: LinearExpression, is_minimization = True):
+        "Sets the objetive function to solve for"
+        self.objective_function = LinearExpression() + objetive_function
+        self.is_minimization = is_minimization
+        return self
+
+    def set_solver(self, solver: Type['SolverApi']):
+        self.solver = solver()
+        return self
+
+    def build_model(self) -> 'Model':
+        for idx, variable in enumerate(self.variables):
+            variable.column = idx
+        self.solver.add_vars(self.variables)
+
+        for idx, constr in enumerate(self.constraints):
+            constr.row = idx
+        self.solver.add_constrs(self.constraints)
+
+        self.solver.set_objective(self.objective_function, self.is_minimization)
+
+        return self
+
+    def run(self, solver: 'SolverApi') -> 'Model':
+        "Runs the solver for the optimization problem."
+        self.set_solver(solver).build_model()
+        self.solver.run(self.options)
+        return self
+
+    def fetch_solution(self) -> 'Model':
+        self.solver.fetch_solution()
+        for variable in self.variables:
+            variable.value = self.solver.get_solution(variable)
+        return self
+
+    def fetch_duals(self) -> 'Model':
+        self.solver.fetch_duals()
+        for constr in self.constraints:
+            constr.dual = self.solver.get_dual(constr)
+        return self
+
+    def get_solution(self, variable: Variable) -> float | None:
+        return self.solver.get_solution(variable)
+
+    def get_dual(self, constraint: LinearConstraint) -> float | None:
+        return self.solver.get_dual(constraint)
+
+@dataclass
+class SolverApi(ABC):
+    solver_name: str = field(default=None, init=False)
+    model: Any | None = field(default=None, init=False)
+    solution: dict[Variable, float] | None = field(default=None, init=False)
+    duals: dict[LinearConstraint, float] | None = field(default=None, init=False)
+
+    def __post_init__(self):
+        self.init_model()
+
+    @abstractmethod
+    def init_model(self) -> 'SolverApi':
+        ...
+
+    @abstractmethod
+    def add_var(self, variable: Variable) -> 'SolverApi':
+        ...
+
+    @abstractmethod
+    def add_vars(self, variables: list[Variable]) -> 'SolverApi':
+        ...
+
+    @abstractmethod
+    def add_constr(self, constraint: LinearConstraint) -> 'SolverApi':
+        ...
+
+    @abstractmethod
+    def add_constrs(self, constraint: list[LinearConstraint]) -> 'SolverApi':
+        ...
+
+    @abstractmethod
+    def set_objective(self, expr: LinearExpression, is_minimization: bool = True) -> 'SolverApi':
+        ...
+
+    @abstractmethod
+    def set_option(self, name: str, value) -> 'SolverApi':
+        ...
+
+    def set_options(self, options: dict[str, Any]) -> 'SolverApi':
+        for name, val in options.items():
+            self.set_option(name, val)
+        return self
+
+    @abstractmethod
+    def fetch_solution(self) -> 'SolverApi':
+        ...
+
+    @abstractmethod
+    def fetch_duals(self) -> 'SolverApi':
+        ...
+
+    @abstractmethod
+    def get_solution(self, variable: Variable) -> float:
+        ...
+
+    @abstractmethod
+    def get_dual(self, constraint: LinearConstraint) -> float:
+        ...
+
+    def set_solution(self, solution: dict[Variable, float]) -> 'SolverApi':
+        self.solution = solution
+        return self
+
+    def set_duals(self, duals: dict[LinearConstraint, float]) -> 'SolverApi':
+        self.duals = duals
+        return self
+
+    @abstractmethod
+    def run(self, options: Optional[dict[str, Any]] = None) -> 'SolverApi':
+        ...
