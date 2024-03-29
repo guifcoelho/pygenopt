@@ -15,8 +15,8 @@ pip install pygenopt
 or if installing from source
 
 ```
-git clone ...
-pip install .
+git clone https://github.com/guifcoelho/pygenopt
+cd pygenopt && pip install .
 ```
 
 ### Using HiGHS API

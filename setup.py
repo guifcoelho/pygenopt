@@ -15,7 +15,7 @@ setup(
     keywords=["Modeling Framework", "Linear Programming", "Linear Optimization", "Operations Research"],
     author="Guilherme Freitas Coelho",
     author_email="coelhoxz@gmail.com",
-    url="",
+    url="https://github.com/guifcoelho/pygenopt",
     python_requires=">=3.10",
     packages=[
         "pygenopt",
