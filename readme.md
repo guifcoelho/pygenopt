@@ -6,13 +6,7 @@ A generic framework for writing linear optimization problems in Python.
 
 ### Installation
 
-If installing from PyPi:
-
-```
-pip install pygenopt
-```
-
-or if installing from source
+Installing from source
 
 ```
 git clone https://github.com/guifcoelho/pygenopt
