@@ -18,7 +18,10 @@ class HiGHS(SolverApi):
         self.set_option('output_flag', False)
         return self
 
-    def _set_integer_variables(self, variables: list[Variable]):
+    def get_version(self):
+        return f"v{self.model.version()}"
+
+    def _set_integrality(self, variables: list[Variable]):
         integer_variables = [
             variable
             for variable in variables
@@ -32,21 +35,27 @@ class HiGHS(SolverApi):
             )
 
     def add_var(self, variable: Variable):
-        self.model.addVars(
-            1,
-            [variable.lowerbound or -highspy.kHighsInf],
-            [variable.upperbound or highspy.kHighsInf]
-        )
-        self._set_integer_variables([variable])
+        lb = [0 if variable.vartype == VarType.BIN else (variable.lowerbound or -highspy.kHighsInf)]
+        ub = [1 if variable.vartype == VarType.BIN else (variable.lowerbound or highspy.kHighsInf)]
+        self.model.addVars(1, lb, ub)
+        self._set_integrality([variable])
         return self
 
     def add_vars(self, variables: list[Variable]):
-        self.model.addVars(
-            len(variables),
-            [var.lowerbound or -highspy.kHighsInf for var in variables],
-            [var.upperbound or highspy.kHighsInf for var in variables]
-        )
-        self._set_integer_variables(variables)
+        lbs = [
+            0
+            if var.vartype == VarType.BIN
+            else (var.lowerbound or -highspy.kHighsInf)
+            for var in variables
+        ]
+        ubs = [
+            1
+            if var.vartype == VarType.BIN
+            else (var.lowerbound or highspy.kHighsInf)
+            for var in variables
+        ]
+        self.model.addVars(len(variables), lbs, ubs)
+        self._set_integrality(variables)
         return self
 
     def del_var(self, variable: Variable):
@@ -76,6 +85,7 @@ class HiGHS(SolverApi):
     def set_objective(self, objetive_function: LinearExpression, is_minimization: bool = True):
         vars, coefs = zip(*list(objetive_function.elements.items()))
         self.model.changeColsCost(len(vars), [var.column for var in vars], coefs)
+        self.model.changeObjectiveOffset(objetive_function.constant)
         self.model.changeObjectiveSense(
             highspy.ObjSense.kMinimize if is_minimization else highspy.ObjSense.kMaximize
         )
@@ -115,10 +125,12 @@ class HiGHS(SolverApi):
                 self.solve_status = SolveStatus.UNKNOWN
 
     def run(self, options: Optional[dict[str, Any]] = None):
+        print(f"Solver: {self.solver_name} {self.get_version()}")
         self.set_option('output_flag', True)
         for key, val in (options or dict()).items():
             self.model.setOptionValue(key, val)
         self.model.run()
+        print()
         self.set_solve_status()
         return self
 

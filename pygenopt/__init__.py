@@ -1,5 +1,5 @@
-from enum import Enum, auto
-from dataclasses import dataclass, field
+from enum import Enum
+from dataclasses import dataclass, field, InitVar
 from typing import Optional, Any, Type
 from abc import ABC, abstractmethod
 from contextlib import suppress
@@ -90,8 +90,14 @@ class LinearExpression:
     def __add__(self, other):
         return self._add(other)
 
+    def __radd__(self, other: 'LinearExpression | Variable | float'):
+        return self + other
+
     def __sub__(self, other):
         return self._add(other, False)
+
+    def __rsub__(self, other: 'LinearExpression | Variable | float'):
+        return self - other
 
     def _multiplication(self, coef: float, multiplication: bool = True):
         new_expr = self.copy()
@@ -130,7 +136,6 @@ class LinearExpression:
     def __pos__(self):
         return LinearExpression() + self
 
-
 @dataclass
 class Variable:
     "The decicion variable"
@@ -157,8 +162,14 @@ class Variable:
     def __add__(self, other: 'LinearExpression | Variable | float'):
         return self.to_linexpr() + other
 
+    def __radd__(self, other: 'LinearExpression | Variable | float'):
+        return self + other
+
     def __sub__(self, other: 'LinearExpression | Variable | float'):
         return self.to_linexpr() - other
+
+    def __rsub__(self, other: 'LinearExpression | Variable | float'):
+        return self - other
 
     def __mul__(self, val: float):
         return self.to_linexpr() * float(val)
@@ -192,8 +203,10 @@ class Model:
     "The optimization model class"
 
     name: str = None
-    solver: 'SolverApi' = field(default=None)
+    solver_api: InitVar[Type['SolverApi']] = None
     options: dict[str, Any] = field(default_factory=dict)
+
+    solver: 'SolverApi' = field(default=None, init=False)
     variables: list[Variable] = field(default_factory=list, init=False)
     pending_variables: list[Variable] = field(default_factory=list, init=False)
     deleting_variables: list[Variable] = field(default_factory=list, init=False)
@@ -202,6 +215,9 @@ class Model:
     objective_function: LinearExpression = field(default=None, init=False)
     is_minimization: bool = field(default=True, init=False)
 
+    def __post_init__(self, solver_api: Type['SolverApi']):
+        if solver_api is not None:
+            self.solver = solver_api()
 
     def set_option(self, name: str, value):
         "Sets the solver option"
@@ -221,9 +237,12 @@ class Model:
 
     def add_vars(self, *variables):
         "Adds some columns to the optimization model."
-        if len(variables) == 1 and isinstance(variables[0], (list, tuple)):
-            variables = variables[0]
-        self.pending_variables += list(variables)
+        for list_of_variables in variables:
+            if isinstance(list_of_variables, dict):
+                list_of_variables = list_of_variables.values()
+            elif isinstance(list_of_variables, Variable):
+                list_of_variables = [list_of_variables]
+            self.pending_variables += list(list_of_variables)
         return self
 
     def del_var(self, variable: Variable | int):
@@ -267,11 +286,14 @@ class Model:
         self.pending_constraints += [constr]
         return self
 
-    def add_constrs(self, *constrs):
+    def add_constrs(self, *constrs: tuple):
         "Adds some constraints to the model."
-        if len(constrs) == 1 and isinstance(constrs[0], (list, tuple)):
-            constrs = constrs[0]
-        self.pending_constraints += list(constrs)
+        for list_of_constrs in constrs:
+            if isinstance(list_of_constrs, dict):
+                list_of_constrs = list_of_constrs.values()
+            elif isinstance(list_of_constrs, LinearConstraint):
+                list_of_constrs = [list_of_constrs]
+            self.pending_constraints += list(list_of_constrs)
         return self
 
     def set_objective(self, objetive_function: LinearExpression, is_minimization = True):
@@ -280,8 +302,8 @@ class Model:
         self.is_minimization = is_minimization
         return self
 
-    def set_solver(self, solver: Type['SolverApi']):
-        self.solver = solver()
+    def set_solver(self, solver_api: Type['SolverApi']):
+        self.solver = solver_api()
         return self
 
     def update_model(self) -> 'Model':
