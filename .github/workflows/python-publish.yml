@@ -17,6 +17,9 @@ permissions:
 
 jobs:
   deploy:
+    name: Publish pygenopt to PyPI
+
+    if: github.event_name == 'push' && startsWith(github.ref, 'refs/tags/v')
 
     runs-on: [windows-latest, ubuntu-latest, macos-latest]
 
