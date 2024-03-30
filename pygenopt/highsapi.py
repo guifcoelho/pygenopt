@@ -90,11 +90,6 @@ class HiGHS(SolverApi):
         )
         return self
 
-    def add_constrs(self, constrs: list[LinearConstraint]):
-        for constr in constrs:
-            self.add_constr(constr)
-        return self
-
     def set_objective(self, objetive_function: LinearExpression, is_minimization: bool = True):
         vars, coefs = zip(*list(objetive_function.elements.items()))
         self.model.changeColsCost(len(vars), [var.column for var in vars], coefs)
