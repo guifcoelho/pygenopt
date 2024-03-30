@@ -69,7 +69,7 @@ def main():
         if i in greedy_bins[j]:
             var_x.value = 1
 
-    prob.run(with_hot_start=True).fetch_solution()
+    prob.run(with_hotstart=True).fetch_solution()
 
     if prob.solve_status not in [opt.SolveStatus.FEASIBLE, opt.SolveStatus.OPTIMUM]:
         print("The model is not feasible")

@@ -360,14 +360,15 @@ class Problem:
 
         return self
 
-    def run(self, with_hot_start: bool = False):
+    def run(self, with_hotstart: bool = False):
         "Updates and runs the solver for the optimization problem."
         if self.solver is None:
             raise Exception("The solver api should be set before solving.")
         self.update()
-        if with_hot_start:
-            self.solver.set_hotstart(self.variables)
-        self.solver.run(self.options)
+        self.solver.run(
+            options=self.options,
+            hotstart=self.variables if with_hotstart else None
+        )
         return self
 
     def fetch_solution(self):
@@ -497,7 +498,9 @@ class SolverApi(ABC):
         ...
 
     @abstractmethod
-    def run(self, options: Optional[dict[str, Any]] = None) -> 'SolverApi':
+    def run(self,
+            options: Optional[dict[str, Any]] = None,
+            hotstart: Optional[list[Variable]] = None) -> 'SolverApi':
         ...
 
     def clear(self) -> 'SolverApi':

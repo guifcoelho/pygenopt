@@ -145,6 +145,8 @@ class HiGHS(SolverApi):
         # sol.col_value = [var.value or 0 for var in variables]
         # self.model.setSolution(sol)
 
+        current_show_log = self.show_log
+
         columns, values, lbs, ubs = zip(*[
             (var.column, var.value, var.lowerbound, var.upperbound)
             for var in variables
@@ -159,7 +161,7 @@ class HiGHS(SolverApi):
         self.fetch_solve_status()
 
         self.set_option('mip_rel_gap', 0)
-        self._set_log(True)
+        self._set_log(current_show_log)
         self.model.changeColsBounds(len(columns), columns, lbs, ubs)
 
         if self.solve_status in [SolveStatus.OPTIMUM, SolveStatus.FEASIBLE]:
@@ -167,12 +169,17 @@ class HiGHS(SolverApi):
             sol.col_value = self.model.getSolution().col_value
             self.model.setSolution(sol)
 
-    def run(self, options: Optional[dict[str, Any]] = None):
-        for key, val in (options or dict()).items():
-            self.model.setOptionValue(key, val)
+    def run(self,
+            options: Optional[dict[str, Any]] = None,
+            hotstart: Optional[list[Variable]] = None):
+
+        self.set_options(options or dict())
 
         if self.show_log:
             print(f"Solver: {self.solver_name} {self.get_version()}")
+
+        if hotstart is not None:
+            self.set_hotstart(hotstart)
 
         self.model.run()
 
