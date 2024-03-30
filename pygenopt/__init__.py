@@ -6,18 +6,19 @@ from contextlib import suppress
 
 
 class ConstraintSign(Enum):
-    "The available constraint signs"
+    "The available constraint signs."
     LEQ = '<='
     GEQ = '>='
     EQ = '=='
 
 class VarType(Enum):
-    "Enumeration of decision varible types"
+    "Enumeration of decision varible types."
     BIN = 'bin'
     INT = 'int'
     CNT = 'cnt'
 
 class SolveStatus(Enum):
+    "Enumeration of the solve status."
     OPTIMUM = 'optimum'
     FEASIBLE = 'feasible'
     UNBOUNDED = 'unbounded'
@@ -48,10 +49,12 @@ class LinearConstraint:
         self.name = name
 
     def set_default_name(self, row: int):
+        "Sets a default name to be provided to the solver."
         self.default_name = f"__constr{row}"
         return self
 
     def clear(self):
+        "Clears all values from the constraint."
         self.default_name = None
         self.row = None
         self.dual = None
@@ -167,7 +170,7 @@ class Variable:
         return hash(self.name)
 
     def to_linexpr(self):
-        "Transforms variable to linear expression"
+        "Transforms the variable into a linear expression"
         return LinearExpression() + self
 
     def __add__(self, other: 'LinearExpression | Variable | float'):
@@ -210,10 +213,12 @@ class Variable:
         return LinearExpression() + self
 
     def set_default_name(self, column: int):
+        "Sets a default name to be provided to the solver."
         self.default_name = f"__var{column}"
         return self
 
     def clear(self):
+        "Clears all values from the variable."
         self.default_name = None
         self.value = None
         self.column = None
@@ -323,6 +328,7 @@ class Problem:
         return self
 
     def set_solver(self, solver_api: Type['SolverApi']):
+        "Sets the solver from the given interface."
         self.solver = solver_api()
         return self
 
@@ -372,6 +378,7 @@ class Problem:
         return self
 
     def fetch_solution(self):
+        "Retrieve all solution values after a solve."
         if self.solve_status in [SolveStatus.FEASIBLE, SolveStatus.OPTIMUM]:
             self.solver.fetch_solution()
             for variable in self.variables:
@@ -379,23 +386,32 @@ class Problem:
         return self
 
     def fetch_duals(self):
+        "Retrieve all dual values after a solve."
         self.solver.fetch_duals()
         for constr in self.constraints:
             constr.dual = self.solver.get_dual(constr)
         return self
 
-    def get_solution(self, variable: Variable) -> float | None:
+    def get_solution(self, variable: Variable) -> float:
+        "Returns the solution value of a variable."
         return self.solver.get_solution(variable)
 
-    def get_dual(self, constraint: LinearConstraint) -> float | None:
+    def get_dual(self, constraint: LinearConstraint) -> float:
+        "Returns the dual value of a constraint."
         return self.solver.get_dual(constraint)
 
     def clear(self):
+        "Returns a fresh instance of the optimization problem."
         if self.solver is not None:
             self.solver.clear()
         return Problem(name=self.name, solver=self.solver, options=self.options)
 
-    def clear_model(self):
+    def clear_solver(self):
+        """
+        Clears the solver but keeps the optimization problem.
+        Running `update()` will rebuild the solver model with the previous
+        variables, constraints and objective function.
+        """
         self.pending_variables = self.variables + self.pending_variables
         for var in self.pending_variables:
             var.clear()
@@ -427,69 +443,93 @@ class SolverApi(ABC):
 
     @abstractmethod
     def init_model(self) -> 'SolverApi':
+        "Initializes the solver."
         ...
 
     @abstractmethod
     def add_var(self, variable: Variable) -> 'SolverApi':
+        "Adds a variable to the solver."
         ...
 
-    @abstractmethod
     def add_vars(self, variables: list[Variable]) -> 'SolverApi':
-        ...
+        "Adds some variables to the solver."
+        for var in variables:
+            self.add_var(var)
+        return self
 
     @abstractmethod
     def del_var(self, variable: Variable) -> 'SolverApi':
         "Deletes the whole column from the actual optimization model."
         ...
 
-    @abstractmethod
     def del_vars(self, variables: list[Variable]) -> 'SolverApi':
         "Deletes whole columns from the actual optimization model."
-        ...
+        for var in variables:
+            self.del_var(var)
+        return self
 
     @abstractmethod
     def add_constr(self, constraint: LinearConstraint) -> 'SolverApi':
+        "Adds a contraint to the solver."
         ...
 
-    @abstractmethod
-    def add_constrs(self, constraint: list[LinearConstraint]) -> 'SolverApi':
-        ...
+    def add_constrs(self, constrs: list[LinearConstraint]) -> 'SolverApi':
+        "Adds some constraints to the solver."
+        for constr in constrs:
+            self.add_constr(constr)
+        return self
 
     @abstractmethod
     def set_objective(self, expr: LinearExpression, is_minimization: bool = True) -> 'SolverApi':
+        "Sets the problem objective function to the solver."
         ...
 
     @abstractmethod
     def set_option(self, name: str, value) -> 'SolverApi':
-        ...
-
-    @abstractmethod
-    def get_option(self, name: str, value) -> 'SolverApi':
+        "Sets an option to the solver."
         ...
 
     def set_options(self, options: dict[str, Any]) -> 'SolverApi':
+        "Sets some options to the solver."
         for name, val in options.items():
             self.set_option(name, val)
         return self
 
     @abstractmethod
+    def get_option(self, name: str) -> Any:
+        "Returns the value of an option from the solver."
+        ...
+
+    def get_options(self, options: list[str]) -> dict[str, Any]:
+        "Returns the values of some options from the solver."
+        return {
+            option: self.get_option(option)
+            for option in options
+        }
+
+    @abstractmethod
     def fetch_solution(self) -> 'SolverApi':
+        "Retrieve all solution values after a solve."
         ...
 
     @abstractmethod
     def fetch_duals(self) -> 'SolverApi':
+        "Retrieves all dual values after a solve."
         ...
 
     @abstractmethod
     def get_solution(self, variable: Variable) -> float:
+        "Returns the solution value of a variable."
         ...
 
     @abstractmethod
     def get_dual(self, constraint: LinearConstraint) -> float:
+        "Returns the dual value of a constraint."
         ...
 
     @abstractmethod
     def fetch_solve_status(self) -> 'SolverApi':
+        "Sets the status of the solving process"
         ...
 
     @abstractmethod
@@ -501,9 +541,11 @@ class SolverApi(ABC):
     def run(self,
             options: Optional[dict[str, Any]] = None,
             hotstart: Optional[list[Variable]] = None) -> 'SolverApi':
+        "Solve the optimization problem."
         ...
 
     def clear(self) -> 'SolverApi':
+        "Clears the model."
         self.solution.clear()
         self.duals.clear()
         return self
