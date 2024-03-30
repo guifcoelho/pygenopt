@@ -462,6 +462,10 @@ class SolverApi(ABC):
     def set_option(self, name: str, value) -> 'SolverApi':
         ...
 
+    @abstractmethod
+    def get_option(self, name: str, value) -> 'SolverApi':
+        ...
+
     def set_options(self, options: dict[str, Any]) -> 'SolverApi':
         for name, val in options.items():
             self.set_option(name, val)
@@ -489,6 +493,7 @@ class SolverApi(ABC):
 
     @abstractmethod
     def set_hotstart(self, variables: list[Variable]) -> 'SolverApi':
+        "Provides the solver with an initial solution (even if it is partial one)."
         ...
 
     @abstractmethod

@@ -13,9 +13,19 @@ class HiGHS(SolverApi):
 
     solver_name = 'HiGHS'
 
+    @property
+    def show_log(self):
+        if self.model is None:
+            raise ValueError("The solver model was not set.")
+        return bool(self.get_option('output_flag'))
+
     def init_model(self):
         self.model = highspy.Highs()
-        self.set_option('output_flag', False)
+        self._set_log(False)
+        return self
+
+    def _set_log(self, flag: bool):
+        self.set_option('output_flag', 'true' if flag else 'false')
         return self
 
     def get_version(self):
@@ -98,6 +108,9 @@ class HiGHS(SolverApi):
         self.model.setOptionValue(name, value)
         return self
 
+    def get_option(self, name: str):
+        return self.model.getOptionValue(name)
+
     def fetch_solution(self):
         self.solution = list(self.model.getSolution().col_value)
         return self
@@ -128,17 +141,41 @@ class HiGHS(SolverApi):
                 self.solve_status = SolveStatus.UNKNOWN
 
     def set_hotstart(self, variables: list[Variable]):
-        sol = highspy.HighsSolution()
-        sol.col_value = [var.value or 0 for var in variables]
-        self.model.setSolution(sol)
+        # sol = highspy.HighsSolution()
+        # sol.col_value = [var.value or 0 for var in variables]
+        # self.model.setSolution(sol)
+
+        columns, values, lbs, ubs = zip(*[
+            (var.column, var.value, var.lowerbound, var.upperbound)
+            for var in variables
+            if var.value is not None and var.column is not None
+        ])
+
+        self.model.changeColsBounds(len(columns), columns, values, values)
+        self.set_option('mip_rel_gap', highspy.kHighsInf)
+        self._set_log(False)
+
+        self.model.run()
+        self.fetch_solve_status()
+
+        self.set_option('mip_rel_gap', 0)
+        self._set_log(True)
+        self.model.changeColsBounds(len(columns), columns, lbs, ubs)
+
+        if self.solve_status in [SolveStatus.OPTIMUM, SolveStatus.FEASIBLE]:
+            sol = highspy.HighsSolution()
+            sol.col_value = self.model.getSolution().col_value
+            self.model.setSolution(sol)
 
     def run(self, options: Optional[dict[str, Any]] = None):
-        print(f"Solver: {self.solver_name} {self.get_version()}")
-        self.set_option('output_flag', True)
         for key, val in (options or dict()).items():
             self.model.setOptionValue(key, val)
+
+        if self.show_log:
+            print(f"Solver: {self.solver_name} {self.get_version()}")
+
         self.model.run()
-        print()
+
         self.fetch_solve_status()
         return self
 

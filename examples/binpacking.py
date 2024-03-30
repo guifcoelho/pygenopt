@@ -13,7 +13,7 @@ from pygenopt.highsapi import HiGHS
 random.seed(100)
 SEED = 100
 
-NumberItems = 40
+NumberItems = 100
 ItemWeights = [round(random.uniform(1, 10), 1) for _ in range(NumberItems)]
 BinCapacity = 15
 
