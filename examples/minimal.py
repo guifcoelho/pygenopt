@@ -11,8 +11,8 @@ def main():
 
     objective_function = x1 + x2 + 5
 
-    m = (
-        opt.Model(name="minimal", solver_api=HiGHS)
+    (
+        opt.Problem(name="minimal", solver_api=HiGHS)
         .add_vars(x1, x2)
         .add_constrs(constr1, constr2)
         .set_objective(objective_function, is_minimization=True)

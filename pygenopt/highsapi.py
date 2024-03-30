@@ -39,6 +39,7 @@ class HiGHS(SolverApi):
         ub = [1 if variable.vartype == VarType.BIN else (variable.lowerbound or highspy.kHighsInf)]
         self.model.addVars(1, lb, ub)
         self._set_integrality([variable])
+        self.model.passColName(variable.column, variable.default_name)
         return self
 
     def add_vars(self, variables: list[Variable]):
@@ -56,6 +57,8 @@ class HiGHS(SolverApi):
         ]
         self.model.addVars(len(variables), lbs, ubs)
         self._set_integrality(variables)
+        for var in variables:
+            self.model.passColName(var.column, var.default_name)
         return self
 
     def del_var(self, variable: Variable):
@@ -113,7 +116,7 @@ class HiGHS(SolverApi):
             self.fetch_duals()
         return self.duals[constraint.row]
 
-    def set_solve_status(self):
+    def fetch_solve_status(self):
         match self.model.getModelStatus():
             case highspy.HighsModelStatus.kOptimal:
                 self.solve_status = SolveStatus.OPTIMUM
@@ -124,6 +127,11 @@ class HiGHS(SolverApi):
             case _:
                 self.solve_status = SolveStatus.UNKNOWN
 
+    def set_hotstart(self, variables: list[Variable]):
+        sol = highspy.HighsSolution()
+        sol.col_value = [var.value or 0 for var in variables]
+        self.model.setSolution(sol)
+
     def run(self, options: Optional[dict[str, Any]] = None):
         print(f"Solver: {self.solver_name} {self.get_version()}")
         self.set_option('output_flag', True)
@@ -131,7 +139,7 @@ class HiGHS(SolverApi):
             self.model.setOptionValue(key, val)
         self.model.run()
         print()
-        self.set_solve_status()
+        self.fetch_solve_status()
         return self
 
     def clear(self):

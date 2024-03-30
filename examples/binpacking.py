@@ -33,12 +33,12 @@ def main():
     greedy_bins = solveGreedyModel()
     B = len(greedy_bins)
 
-    m = opt.Model(
+    prob = opt.Problem(
         name='BinPacking',
         solver_api=HiGHS,
         options={
             'mip_abs_gap': 1-1e-5,
-            'random_seed': SEED
+            'random_seed': SEED,
         }
     )
 
@@ -51,19 +51,27 @@ def main():
         j: opt.Variable(f"y({j})", vartype=opt.VarType.BIN)
         for j in range(B)
     }
-    m.add_vars(x, y)
+    prob.add_vars(x, y)
 
-    m.set_objective(sum(y.values()), is_minimization=True)
+    prob.set_objective(sum(y.values()), is_minimization=True)
 
     for i in range(NumberItems):
-        m.add_constr(sum(x[i,j] for j in range(B)) == 1)
+        prob.add_constr(sum(x[i,j] for j in range(B)) == 1)
 
     for j in range(B):
-        m.add_constr(sum(ItemWeights[i] * x[i,j] for i in range(NumberItems)) <= BinCapacity*y[j])
+        prob.add_constr(sum(ItemWeights[i] * x[i,j] for i in range(NumberItems)) <= BinCapacity*y[j])
 
-    m.run().fetch_solution()
+    # Hot starting variables
+    for j, var_y in y.items():
+        var_y.value = 1
 
-    if m.solve_status not in [opt.SolveStatus.FEASIBLE, opt.SolveStatus.OPTIMUM]:
+    for (i,j), var_x in x.items():
+        if i in greedy_bins[j]:
+            var_x.value = 1
+
+    prob.run(with_hot_start=True).fetch_solution()
+
+    if prob.solve_status not in [opt.SolveStatus.FEASIBLE, opt.SolveStatus.OPTIMUM]:
         print("The model is not feasible")
         exit()
 

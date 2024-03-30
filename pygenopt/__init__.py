@@ -30,6 +30,7 @@ class LinearConstraint:
     expression: 'LinearExpression'
     sign: ConstraintSign
     name: Optional[str] = None
+    default_name: Optional[str] = None
     row: Optional[int] = None
     dual: Optional[float] = None
 
@@ -45,6 +46,15 @@ class LinearConstraint:
             raise Exception()
 
         self.name = name
+
+    def set_default_name(self, row: int):
+        self.default_name = f"__constr{row}"
+        return self
+
+    def clear(self):
+        self.default_name = None
+        self.row = None
+        self.dual = None
 
 
 @dataclass
@@ -141,6 +151,7 @@ class Variable:
     "The decicion variable"
 
     name: str
+    default_name: Optional[str] = field(default=None, init=False)
     vartype: VarType = field(default=VarType.CNT, repr=False)
     lowerbound: float = field(default=None, repr=False)
     upperbound: float = field(default=None, repr=False)
@@ -198,9 +209,18 @@ class Variable:
     def __pos__(self):
         return LinearExpression() + self
 
+    def set_default_name(self, column: int):
+        self.default_name = f"__var{column}"
+        return self
+
+    def clear(self):
+        self.default_name = None
+        self.value = None
+        self.column = None
+
 @dataclass
-class Model:
-    "The optimization model class"
+class Problem:
+    "The optimization problem class"
 
     name: str = None
     solver_api: InitVar[Type['SolverApi']] = None
@@ -306,7 +326,7 @@ class Model:
         self.solver = solver_api()
         return self
 
-    def update_model(self) -> 'Model':
+    def update(self):
         """
         Deletes and adds any pending variables and constraints to the model,
         and sets the objective function.
@@ -324,12 +344,14 @@ class Model:
 
         for idx, variable in enumerate(self.pending_variables):
             variable.column = idx + len(self.variables)
+            variable.set_default_name(variable.column)
         self.solver.add_vars(self.pending_variables)
         self.variables += self.pending_variables
         self.pending_variables = []
 
         for idx, constr in enumerate(self.pending_constraints):
             constr.row = idx + len(self.constraints)
+            constr.set_default_name(constr.row)
         self.solver.add_constrs(self.pending_constraints)
         self.constraints += self.pending_constraints
         self.pending_constraints = []
@@ -338,22 +360,24 @@ class Model:
 
         return self
 
-    def run(self) -> 'Model':
+    def run(self, with_hot_start: bool = False):
         "Updates and runs the solver for the optimization problem."
         if self.solver is None:
             raise Exception("The solver api should be set before solving.")
-        self.update_model()
+        self.update()
+        if with_hot_start:
+            self.solver.set_hotstart(self.variables)
         self.solver.run(self.options)
         return self
 
-    def fetch_solution(self) -> 'Model':
+    def fetch_solution(self):
         if self.solve_status in [SolveStatus.FEASIBLE, SolveStatus.OPTIMUM]:
             self.solver.fetch_solution()
             for variable in self.variables:
                 variable.value = self.solver.get_solution(variable)
         return self
 
-    def fetch_duals(self) -> 'Model':
+    def fetch_duals(self):
         self.solver.fetch_duals()
         for constr in self.constraints:
             constr.dual = self.solver.get_dual(constr)
@@ -368,7 +392,22 @@ class Model:
     def clear(self):
         if self.solver is not None:
             self.solver.clear()
-        return Model(name=self.name, solver=self.solver, options=self.options)
+        return Problem(name=self.name, solver=self.solver, options=self.options)
+
+    def clear_model(self):
+        self.pending_variables = self.variables + self.pending_variables
+        for var in self.pending_variables:
+            var.clear()
+        self.variables = []
+
+        self.pending_constraints = self.constraints + self.pending_constraints
+        for constr in self.pending_constraints:
+            constr.clear()
+        self.constraints = []
+
+        if self.solver is not None:
+            self.solver.clear()
+        return self
 
     @property
     def solve_status(self):
@@ -444,16 +483,12 @@ class SolverApi(ABC):
     def get_dual(self, constraint: LinearConstraint) -> float:
         ...
 
-    def set_solution(self, solution: dict[Variable, float]) -> 'SolverApi':
-        self.solution = solution
-        return self
-
-    def set_duals(self, duals: dict[LinearConstraint, float]) -> 'SolverApi':
-        self.duals = duals
-        return self
+    @abstractmethod
+    def fetch_solve_status(self) -> 'SolverApi':
+        ...
 
     @abstractmethod
-    def set_solve_status(self) -> 'SolverApi':
+    def set_hotstart(self, variables: list[Variable]) -> 'SolverApi':
         ...
 
     @abstractmethod
