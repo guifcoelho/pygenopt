@@ -63,13 +63,13 @@ def main():
 
     # Hot starting variables
     for j, var_y in y.items():
-        var_y.value = 1
+        var_y.set_hotstart(1.0)
 
     for (i,j), var_x in x.items():
         if i in greedy_bins[j]:
-            var_x.value = 1
+            var_x.set_hotstart(1.0)
 
-    prob.run(with_hotstart=True).fetch_solution()
+    prob.solve(with_hotstart=True).fetch_solution()
 
     if prob.solve_status not in [opt.SolveStatus.FEASIBLE, opt.SolveStatus.OPTIMUM]:
         print("The model is not feasible")

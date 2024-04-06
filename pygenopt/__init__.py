@@ -3,7 +3,10 @@ from dataclasses import dataclass, field, InitVar
 from typing import Optional, Any, Type
 from abc import ABC, abstractmethod
 from contextlib import suppress
+import time
+import random
 
+INF = float('inf')
 
 class ConstraintSign(Enum):
     "The available constraint signs."
@@ -25,40 +28,6 @@ class SolveStatus(Enum):
     INFEASIBLE = 'infeasible'
     NOT_SOLVED = 'not_solved'
     UNKNOWN = 'unknown'
-
-class LinearConstraint:
-    "The linear constraint class"
-    expression: 'LinearExpression'
-    sign: ConstraintSign
-    name: Optional[str] = None
-    default_name: Optional[str] = None
-    row: Optional[int] = None
-    dual: Optional[float] = None
-
-    def __init__(self,
-                 constr: 'LinearConstraint | tuple[LinearExpression, ConstraintSign]',
-                 name: Optional[str] = None):
-        if isinstance(constr, LinearConstraint):
-            self.expression = constr.expression
-            self.sign = constr.sign
-        elif isinstance(constr, tuple):
-            self.expression, self.sign = constr
-        else:
-            raise Exception()
-
-        self.name = name
-
-    def set_default_name(self, row: int):
-        "Sets a default name to be provided to the solver."
-        self.default_name = f"__constr{row}"
-        return self
-
-    def clear(self):
-        "Clears all values from the constraint."
-        self.default_name = None
-        self.row = None
-        self.dual = None
-
 
 @dataclass
 class LinearExpression:
@@ -149,25 +118,74 @@ class LinearExpression:
     def __pos__(self):
         return LinearExpression() + self
 
+class LinearConstraint:
+    "The linear constraint class"
+
+    expression: 'LinearExpression'
+    sign: ConstraintSign
+    name: Optional[str] = None
+    row: Optional[int] = None
+    dual: Optional[float] = None
+
+    _hash: str | None = field(default=None, init=False)
+    _default_name: Optional[str] = None
+
+    def __init__(self,
+                 constr: 'LinearConstraint | tuple[LinearExpression, ConstraintSign]',
+                 name: Optional[str] = None):
+        if isinstance(constr, LinearConstraint):
+            self.expression = constr.expression
+            self.sign = constr.sign
+        elif isinstance(constr, tuple):
+            self.expression, self.sign = constr
+        else:
+            raise Exception()
+
+        self.name = name
+        self._hash = hash(f"{time.perf_counter_ns()}{random.random()}")
+
+    def __hash__(self):
+        if self._hash is None:
+            raise Exception("The hash string of the 'LinearConstraint' object was not set.")
+        return self._hash
+
+    def set_default_name(self, row: int):
+        "Sets a default name to be provided to the solver."
+        self._default_name = f"__constr{row}"
+        return self
+
+    def clear(self):
+        "Clears all values from the constraint."
+        self._default_name = None
+        self.row = None
+        self.dual = None
+
 @dataclass
 class Variable:
     "The decicion variable"
 
     name: str
-    default_name: Optional[str] = field(default=None, init=False)
     vartype: VarType = field(default=VarType.CNT, repr=False)
-    lowerbound: float = field(default=None, repr=False)
-    upperbound: float = field(default=None, repr=False)
-    column: int = field(default=None, init=False)
-    value: float = field(default=None, init=False)
+    lowerbound: Optional[float] = field(default=None, repr=False)
+    upperbound: Optional[float] = field(default=None, repr=False)
+
+    column: int | None = field(default=None, init=False)
+    value: float | None = field(default=None, init=False)
+    hotstart_value: float | None = field(default=None, init=False)
+
+    _hash: str | None = field(default=None, init=False)
+    _default_name: str | None = field(default=None, init=False)
 
     def __post_init__(self):
+        self._hash = hash(f"{time.perf_counter_ns()}{random.random()}")
         if self.vartype == VarType.BIN:
             self.lowerbound = 0
             self.upperbound = 1
 
     def __hash__(self):
-        return hash(self.name)
+        if self._hash is None:
+            raise Exception("The hash string of the 'Variable' object was not set.")
+        return self._hash
 
     def to_linexpr(self):
         "Transforms the variable into a linear expression"
@@ -214,12 +232,26 @@ class Variable:
 
     def set_default_name(self, column: int):
         "Sets a default name to be provided to the solver."
-        self.default_name = f"__var{column}"
+        self._default_name = f"__var{column}"
+        return self
+
+    @property
+    def default_name(self):
+        if self._default_name is None:
+            raise ValueError(
+                "The default name of this variable was not set. "
+                "Add this variable to the problem and run `problem.update()`"
+            )
+        return self._default_name
+
+    def set_hotstart(self, value: float):
+        "Sets the value to be used as initial solution on the solver."
+        self.hotstart_value = value
         return self
 
     def clear(self):
         "Clears all values from the variable."
-        self.default_name = None
+        self._default_name = None
         self.value = None
         self.column = None
 
@@ -366,19 +398,30 @@ class Problem:
 
         return self
 
-    def run(self, with_hotstart: bool = False):
+    def set_hotstart(self):
+        columns, values, lbs, ubs = zip(*[
+            (var.column, var.hotstart_value, var.lowerbound, var.upperbound)
+            for var in self.variables
+            if var.hotstart_value is not None
+            and var.column is not None
+            and (var.lowerbound or -INF) <= var.hotstart_value <= (var.upperbound or INF)
+        ])
+        self.solver.set_hotstart(columns, values, lbs, ubs)
+        return self
+
+    def solve(self, with_hotstart: bool = False):
         "Updates and runs the solver for the optimization problem."
         if self.solver is None:
             raise Exception("The solver api should be set before solving.")
         self.update()
-        self.solver.run(
-            options=self.options,
-            hotstart=self.variables if with_hotstart else None
-        )
+        if with_hotstart:
+            self.set_hotstart()
+        self.solver.run(self.options)
         return self
 
     def fetch_solution(self):
         "Retrieve all solution values after a solve."
+        self.solver.fetch_solve_status()
         if self.solve_status in [SolveStatus.FEASIBLE, SolveStatus.OPTIMUM]:
             self.solver.fetch_solution()
             for variable in self.variables:
@@ -533,15 +576,17 @@ class SolverApi(ABC):
         ...
 
     @abstractmethod
-    def set_hotstart(self, variables: list[Variable]) -> 'SolverApi':
+    def set_hotstart(self,
+                     columns: list[int],
+                     values: list[float],
+                     lbs: list[float | None],
+                     ubs: list[float | None]) -> 'SolverApi':
         "Provides the solver with an initial solution (even if it is partial one)."
         ...
 
     @abstractmethod
-    def run(self,
-            options: Optional[dict[str, Any]] = None,
-            hotstart: Optional[list[Variable]] = None) -> 'SolverApi':
-        "Solve the optimization problem."
+    def run(self, options: Optional[dict[str, Any]] = None) -> 'SolverApi':
+        "Runs the solver to for the optimization problem."
         ...
 
     def clear(self) -> 'SolverApi':

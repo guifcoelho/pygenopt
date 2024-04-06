@@ -11,15 +11,15 @@ def main():
 
     objective_function = x1 + x2 + 5
 
-    (
-        opt.Problem(name="minimal", solver_api=HiGHS)
+    prob = (
+        opt.Problem(name="minimal_problem", solver_api=HiGHS, options={'presolve': 'off'})
         .add_vars(x1, x2)
         .add_constrs(constr1, constr2)
         .set_objective(objective_function, is_minimization=True)
-        .set_options({'presolve': 'off'})
-        .run()
+        .solve()
         .fetch_solution()
     )
+    print(prob.solve_status)
 
     print(x1.value, x2.value)
 

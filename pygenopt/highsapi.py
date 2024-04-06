@@ -135,18 +135,12 @@ class HiGHS(SolverApi):
             case _:
                 self.solve_status = SolveStatus.UNKNOWN
 
-    def set_hotstart(self, variables: list[Variable]):
-        # sol = highspy.HighsSolution()
-        # sol.col_value = [var.value or 0 for var in variables]
-        # self.model.setSolution(sol)
-
+    def set_hotstart(self,
+                     columns: list[int],
+                     values: list[float],
+                     lowerbounds: list[float | None],
+                     upperbounds: list[float | None]):
         current_show_log = self.show_log
-
-        columns, values, lbs, ubs = zip(*[
-            (var.column, var.value, var.lowerbound, var.upperbound)
-            for var in variables
-            if var.value is not None and var.column is not None
-        ])
 
         self.model.changeColsBounds(len(columns), columns, values, values)
         self.set_option('mip_rel_gap', highspy.kHighsInf)
@@ -157,28 +151,24 @@ class HiGHS(SolverApi):
 
         self.set_option('mip_rel_gap', 0)
         self._set_log(current_show_log)
-        self.model.changeColsBounds(len(columns), columns, lbs, ubs)
+        self.model.changeColsBounds(
+            len(columns),
+            columns,
+            [lb or -highspy.kHighsInf for lb in lowerbounds],
+            [ub or highspy.kHighsInf for ub in upperbounds]
+        )
 
         if self.solve_status in [SolveStatus.OPTIMUM, SolveStatus.FEASIBLE]:
             sol = highspy.HighsSolution()
             sol.col_value = self.model.getSolution().col_value
             self.model.setSolution(sol)
 
-    def run(self,
-            options: Optional[dict[str, Any]] = None,
-            hotstart: Optional[list[Variable]] = None):
-
+    def run(self, options: Optional[dict[str, Any]] = None):
+        self._set_log(True)
         self.set_options(options or dict())
-
         if self.show_log:
             print(f"Solver: {self.solver_name} {self.get_version()}")
-
-        if hotstart is not None:
-            self.set_hotstart(hotstart)
-
         self.model.run()
-
-        self.fetch_solve_status()
         return self
 
     def clear(self):
