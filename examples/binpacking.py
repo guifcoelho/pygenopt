@@ -53,7 +53,7 @@ def main():
     }
     prob.add_vars(x, y)
 
-    prob.set_objective(sum(y.values()), is_minimization=True)
+    prob.set_objective(opt.sum(y))
 
     for i in range(NumberItems):
         prob.add_constr(sum(x[i,j] for j in range(B)) == 1)

@@ -4,7 +4,9 @@ from typing import Any, Optional
 import highspy
 
 from pygenopt import (
-    LinearExpression, Variable, LinearConstraint, ConstraintSign, SolverApi, VarType, SolveStatus
+    LinearExpression, Variable, LinearConstraint, ObjectiveFunction,
+    ConstraintSign, SolverApi, VarType,
+    SolveStatus
 )
 
 
@@ -32,44 +34,24 @@ class HiGHS(SolverApi):
     def get_version(self):
         return f"v{self.model.version()}"
 
-    def _set_integrality(self, variables: list[Variable]):
-        integer_variables = [
-            variable
-            for variable in variables
-            if variable.vartype in [VarType.BIN, VarType.INT]
-        ]
-        if len(integer_variables) > 0:
-            self.model.changeColsIntegrality(
-                len(integer_variables),
-                [variable.column for variable in integer_variables],
-                [highspy.HighsVarType.kInteger] * len(integer_variables)
-            )
-
     def add_var(self, variable: Variable):
-        lb = [0 if variable.vartype == VarType.BIN else (variable.lowerbound or -highspy.kHighsInf)]
-        ub = [1 if variable.vartype == VarType.BIN else (variable.lowerbound or highspy.kHighsInf)]
-        self.model.addVars(1, lb, ub)
-        self._set_integrality([variable])
-        self.model.passColName(variable.column, variable.default_name)
-        return self
+        return self.add_vars([variable])
 
     def add_vars(self, variables: list[Variable]):
         lbs = [
-            0
-            if var.vartype == VarType.BIN
-            else (var.lowerbound or -highspy.kHighsInf)
+            0 if var.vartype == VarType.BIN else (-highspy.kHighsInf if var.lowerbound is None else var.lowerbound)
             for var in variables
         ]
         ubs = [
-            1
-            if var.vartype == VarType.BIN
-            else (var.lowerbound or highspy.kHighsInf)
+            1 if var.vartype == VarType.BIN else (highspy.kHighsInf if var.upperbound is None else var.upperbound)
             for var in variables
         ]
         self.model.addVars(len(variables), lbs, ubs)
-        self._set_integrality(variables)
         for var in variables:
             self.model.passColName(var.column, var.default_name)
+            if var.vartype in [VarType.BIN, VarType.INT]:
+                self.model.changeColsIntegrality(1, [var.column], [highspy.HighsVarType.kInteger])
+
         return self
 
     def del_var(self, variable: Variable):
@@ -82,6 +64,10 @@ class HiGHS(SolverApi):
 
     def add_constr(self, constr: LinearConstraint):
         vars, coefs = zip(*list(constr.expression.elements.items()))
+        for var in vars:
+            if var.column is None:
+                raise Exception("All variables need to be added to the model prior to adding constraints.")
+
         self.model.addRow(
             -highspy.kHighsInf if constr.sign == ConstraintSign.LEQ else -constr.expression.constant,
             highspy.kHighsInf if constr.sign == ConstraintSign.GEQ else -constr.expression.constant,
@@ -91,17 +77,21 @@ class HiGHS(SolverApi):
         )
         return self
 
-    def set_objective(self, objetive_function: LinearExpression | Variable | float, is_minimization: bool = True):
-        objetive_function += LinearExpression()
+    def set_objective(self, objetive_function: ObjectiveFunction | Variable | LinearExpression | float | int):
+        if isinstance(objetive_function, (Variable | float | int)):
+            objetive_function += LinearExpression()
+        if isinstance(objetive_function, LinearExpression):
+            objetive_function = ObjectiveFunction(objetive_function)
+
         num_vars = self.model.numVars
         self.model.changeColsCost(num_vars, list(range(num_vars)), [0]*num_vars)
-        if len(objetive_function.elements) > 0:
-            vars, coefs = zip(*list(objetive_function.elements.items()))
+        if len(objetive_function.expression.elements) > 0:
+            vars, coefs = zip(*list(objetive_function.expression.elements.items()))
             self.model.changeColsCost(len(vars), [var.column for var in vars], coefs)
 
-        self.model.changeObjectiveOffset(objetive_function.constant)
+        self.model.changeObjectiveOffset(objetive_function.expression.constant)
         self.model.changeObjectiveSense(
-            highspy.ObjSense.kMinimize if is_minimization else highspy.ObjSense.kMaximize
+            highspy.ObjSense.kMinimize if objetive_function.is_minimization else highspy.ObjSense.kMaximize
         )
         return self
 
@@ -143,6 +133,7 @@ class HiGHS(SolverApi):
                 self.solve_status = SolveStatus.UNBOUNDED
             case _:
                 self.solve_status = SolveStatus.UNKNOWN
+        return self
 
     def set_hotstart(self, columns: list[int], values: list[float]):
         # With HiGHS, the hotstart solution should be set just before a new execution.
@@ -197,18 +188,26 @@ class HiGHS(SolverApi):
 
         return self
 
-    def run_multiobjective(self, objectives: list[tuple[LinearExpression, bool, Optional[dict[str, Any]]]]):
-        for idx, (objectivefunction, is_minimization, options) in enumerate(objectives):
+    def run_multiobjective(self, objectives: list[ObjectiveFunction], options: Optional[dict[str, Any]] = None):
+        for idx, objective in enumerate(objectives):
             if self.show_log:
-                print(f">> Solving for objective #{idx+1}")
+                if idx > 0:
+                    print()
+                print(
+                    f">> Solving for objective {idx+1} of {len(objectives)} "
+                    f"(sense: {'Minimization' if objective.is_minimization else 'Maximization'})"
+                )
 
-            self.set_objective(objectivefunction, is_minimization)
-            self.run(options or dict())
+            self.set_objective(objective)
+            self.run(objective.options or options)
             self.fetch_solve_status()
-            if self.solve_status in [SolveStatus.FEASIBLE, SolveStatus.OPTIMUM]:
+
+            if self.solve_status in [SolveStatus.FEASIBLE, SolveStatus.OPTIMUM] and idx < len(objectives) - 1:
                 self.fetch_solution()
                 self.set_hotstart(list(range(len(self.solution))), self.solution)
-                self.add_constr(objectivefunction == self.get_objective_value())
+                self.add_constr(objective.expression == self.get_objective_value())
+            else:
+                break
 
         return self
 

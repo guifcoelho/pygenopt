@@ -9,13 +9,13 @@ def main():
     constr1 = opt.LinearConstraint(x2 - x1 >= 2, 'constr1')
     constr2 = opt.LinearConstraint(x1 + x2 >= 0, 'constr2')
 
-    objective_function = x1 + x2 + 5
+    objective_function = -(x1 + x2 + 5)
 
     prob = (
         opt.Problem(name="minimal_problem", solver_api=HiGHS, options={'presolve': 'off'})
         .add_vars(x1, x2)
         .add_constrs(constr1, constr2)
-        .set_objective(objective_function, is_minimization=True)
+        .set_objective(opt.ObjectiveFunction(objective_function, is_minimization=False))
         .solve()
         .fetch_solution()
     )

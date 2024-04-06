@@ -29,6 +29,13 @@ class SolveStatus(Enum):
     NOT_SOLVED = 'not_solved'
     UNKNOWN = 'unknown'
 
+pysum = sum
+
+def sum(values):
+    if isinstance(values, dict):
+        values = list(values.values())
+    return LinearExpression() + pysum(values)
+
 @dataclass
 class LinearExpression:
     "A wrapper for general expressions"
@@ -56,7 +63,7 @@ class LinearExpression:
         new_expr.elements[var] = self.elements.get(var, 0) + sign
         return new_expr
 
-    def _add_constant(self, val: float, addition: bool = True):
+    def _add_constant(self, val: float | int, addition: bool = True):
         new_expr = self.copy()
         sign = 1 if addition else -1
         new_expr.constant = self.constant + val * sign
@@ -72,16 +79,16 @@ class LinearExpression:
     def __add__(self, other):
         return self._add(other)
 
-    def __radd__(self, other: 'LinearExpression | Variable | float'):
+    def __radd__(self, other: 'LinearExpression | Variable | float | int'):
         return self + other
 
     def __sub__(self, other):
         return self._add(other, False)
 
-    def __rsub__(self, other: 'LinearExpression | Variable | float'):
+    def __rsub__(self, other: 'LinearExpression | Variable | float | int'):
         return self - other
 
-    def _multiplication(self, coef: float, multiplication: bool = True):
+    def _multiplication(self, coef: float | int, multiplication: bool = True):
         new_expr = self.copy()
         coef = float(coef)
         new_expr.elements = {
@@ -91,25 +98,25 @@ class LinearExpression:
         new_expr.constant *= (coef if multiplication else 1/coef)
         return new_expr
 
-    def __mul__(self, coef: float):
+    def __mul__(self, coef: float | int):
         return self._multiplication(coef)
 
-    def __rmul__(self, coef: float):
+    def __rmul__(self, coef: float | int):
         return self._multiplication(coef)
 
-    def __truediv__(self, coef: float):
+    def __truediv__(self, coef: float | int):
         return self._multiplication(coef, False)
 
-    def __rtruediv__(self, coef: float):
+    def __rtruediv__(self, coef: float | int):
         return self._multiplication(coef, False)
 
-    def __eq__(self, rhs: 'LinearExpression | Variable | float'):
+    def __eq__(self, rhs: 'LinearExpression | Variable | float | int'):
         return LinearConstraint((LinearExpression() + (self - rhs), ConstraintSign.EQ))
 
-    def __le__(self, rhs: 'LinearExpression | Variable | float'):
+    def __le__(self, rhs: 'LinearExpression | Variable | float | int'):
         return LinearConstraint((LinearExpression() + (self - rhs), ConstraintSign.LEQ))
 
-    def __ge__(self, rhs: 'LinearExpression | Variable | float'):
+    def __ge__(self, rhs: 'LinearExpression | Variable | float | int'):
         return LinearConstraint((LinearExpression() + (self - rhs), ConstraintSign.GEQ))
 
     def __neg__(self):
@@ -164,7 +171,7 @@ class LinearConstraint:
 class Variable:
     "The decicion variable"
 
-    name: str
+    name: Optional[str] = field(default=None)
     vartype: VarType = field(default=VarType.CNT, repr=False)
     lowerbound: Optional[float] = field(default=None, repr=False)
     upperbound: Optional[float] = field(default=None, repr=False)
@@ -191,37 +198,37 @@ class Variable:
         "Transforms the variable into a linear expression"
         return LinearExpression() + self
 
-    def __add__(self, other: 'LinearExpression | Variable | float'):
+    def __add__(self, other: 'LinearExpression | Variable | float | int'):
         return self.to_linexpr() + other
 
-    def __radd__(self, other: 'LinearExpression | Variable | float'):
+    def __radd__(self, other: 'LinearExpression | Variable | float | int'):
         return self + other
 
-    def __sub__(self, other: 'LinearExpression | Variable | float'):
+    def __sub__(self, other: 'LinearExpression | Variable | float | int'):
         return self.to_linexpr() - other
 
-    def __rsub__(self, other: 'LinearExpression | Variable | float'):
+    def __rsub__(self, other: 'LinearExpression | Variable | float | int'):
         return self - other
 
-    def __mul__(self, val: float):
+    def __mul__(self, val: float | int):
         return self.to_linexpr() * float(val)
 
-    def __rmul__(self, val: float):
+    def __rmul__(self, val: float | int):
         return self * float(val)
 
-    def __truediv__(self, val: float):
+    def __truediv__(self, val: float | int):
         return self.to_linexpr() / float(val)
 
-    def __rtruediv__(self, val: float):
+    def __rtruediv__(self, val: float | int):
         return self.to_linexpr() / float(val)
 
-    def __eq__(self, rhs: 'LinearExpression | Variable | float'):
+    def __eq__(self, rhs: 'LinearExpression | Variable | float | int'):
         return self.to_linexpr() == rhs
 
-    def __le__(self, rhs: 'LinearExpression | Variable | float'):
+    def __le__(self, rhs: 'LinearExpression | Variable | float | int'):
         return self.to_linexpr() <= rhs
 
-    def __ge__(self, rhs: 'LinearExpression | Variable | float'):
+    def __ge__(self, rhs: 'LinearExpression | Variable | float | int'):
         return self.to_linexpr() >= rhs
 
     def __neg__(self):
@@ -256,6 +263,15 @@ class Variable:
         self.column = None
 
 @dataclass
+class ObjectiveFunction:
+    expression: "LinearExpression" = field(default_factory=LinearExpression)
+    is_minimization: bool = True
+    options: dict[str, Any] = field(default_factory=dict)
+
+    def __post_init__(self):
+        self.expression += LinearExpression()
+
+@dataclass
 class Problem:
     "The optimization problem class"
 
@@ -269,7 +285,7 @@ class Problem:
     deleting_variables: list[Variable] = field(default_factory=list, init=False)
     constraints: list[LinearConstraint] = field(default_factory=list, init=False)
     pending_constraints: list[LinearConstraint] = field(default_factory=list, init=False)
-    objective_functions: list[tuple[LinearExpression, bool, Optional[dict[str, Any]]]] = field(default_factory=list, init=False)
+    objective_functions: list[ObjectiveFunction] = field(default_factory=list, init=False)
 
     def __post_init__(self, solver_api: Type['SolverApi']):
         if solver_api is not None:
@@ -291,7 +307,7 @@ class Problem:
         self.pending_variables += [variable]
         return self
 
-    def add_vars(self, *variables):
+    def add_vars(self, *variables: list | dict | Variable):
         "Adds some columns to the optimization model."
         for list_of_variables in variables:
             if isinstance(list_of_variables, dict):
@@ -342,7 +358,7 @@ class Problem:
         self.pending_constraints += [constr]
         return self
 
-    def add_constrs(self, *constrs: tuple):
+    def add_constrs(self, *constrs: list | dict | LinearConstraint):
         "Adds some constraints to the model."
         for list_of_constrs in constrs:
             if isinstance(list_of_constrs, dict):
@@ -352,15 +368,25 @@ class Problem:
             self.pending_constraints += list(list_of_constrs)
         return self
 
-    def set_objective(self, objetive_function: LinearExpression, is_minimization = True):
-        "Sets the objetive function to solve for"
+    def set_objective(self, objective: ObjectiveFunction | Variable | LinearExpression | float | int):
+        "Sets the objetive function to solve for."
         self.objective_functions = list()
-        self.add_objective(objetive_function, is_minimization)
+        return self.add_objective(objective)
+
+    def add_objectives(self, *objectives: ObjectiveFunction | Variable | LinearExpression | float | int):
+        "Adds some objective functions to solve for."
+        for objective in objectives:
+            self.add_objective(objective)
         return self
 
-    def add_objective(self, objetive_function: LinearExpression, is_minimization = True, options: Optional[dict[str, Any]] = None):
-        "Adds a new objective function to solve for"
-        self.objective_functions += [(LinearExpression() + objetive_function, is_minimization, options)]
+    def add_objective(self, objective: ObjectiveFunction | Variable | LinearExpression | float | int):
+        "Adds a new objective function to solve for."
+        if isinstance(objective, (Variable, float, int)):
+            objective += LinearExpression()
+        if isinstance(objective, LinearExpression):
+            objective = ObjectiveFunction(objective)
+
+        self.objective_functions += [objective]
         return self
 
     def set_solver(self, solver_api: Type['SolverApi']):
@@ -421,12 +447,13 @@ class Problem:
             self.set_hotstart()
 
         if len(self.objective_functions) == 1:
-            objectivefunction, is_minimization, _ = self.objective_functions[0]
-            self.solver.set_objective(objectivefunction, is_minimization)
-            self.solver.run(self.options)
+            objective = self.objective_functions[0]
+            self.solver.set_objective(objective)
+            self.solver.run(objective.options or self.options)
             return self
 
-        return self.solver.run_multiobjective(self.objective_functions)
+        self.solver.run_multiobjective(self.objective_functions, self.options)
+        return self
 
     def fetch_solve_status(self):
         self.solver.fetch_solve_status()
@@ -440,6 +467,9 @@ class Problem:
             for variable in self.variables:
                 variable.value = self.solver.get_solution(variable)
         return self
+
+    def get_objectivefunction_value(self) -> float:
+        return self.solver.get_objective_value()
 
     def fetch_duals(self):
         "Retrieve all dual values after a solve."
@@ -600,12 +630,12 @@ class SolverApi(ABC):
 
     @abstractmethod
     def run(self, options: Optional[dict[str, Any]] = None) -> 'SolverApi':
-        "Runs the solver to for the optimization problem."
+        "Runs the solver for the optimization problem with a single objective."
         ...
 
     @abstractmethod
     def run_multiobjective(self, objectives: list[tuple[LinearExpression, bool, Optional[dict[str, Any]]]]) -> 'SolverApi':
-        "Runs the solver to for the optimization problem with multiobjectives."
+        "Runs the solver for the optimization problem with multiples objectives."
         ...
 
     def clear(self) -> 'SolverApi':
