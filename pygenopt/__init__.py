@@ -269,8 +269,7 @@ class Problem:
     deleting_variables: list[Variable] = field(default_factory=list, init=False)
     constraints: list[LinearConstraint] = field(default_factory=list, init=False)
     pending_constraints: list[LinearConstraint] = field(default_factory=list, init=False)
-    objective_function: LinearExpression = field(default=None, init=False)
-    is_minimization: bool = field(default=True, init=False)
+    objective_functions: list[tuple[LinearExpression, bool, Optional[dict[str, Any]]]] = field(default_factory=list, init=False)
 
     def __post_init__(self, solver_api: Type['SolverApi']):
         if solver_api is not None:
@@ -355,8 +354,13 @@ class Problem:
 
     def set_objective(self, objetive_function: LinearExpression, is_minimization = True):
         "Sets the objetive function to solve for"
-        self.objective_function = LinearExpression() + objetive_function
-        self.is_minimization = is_minimization
+        self.objective_functions = list()
+        self.add_objective(objetive_function, is_minimization)
+        return self
+
+    def add_objective(self, objetive_function: LinearExpression, is_minimization = True, options: Optional[dict[str, Any]] = None):
+        "Adds a new objective function to solve for"
+        self.objective_functions += [(LinearExpression() + objetive_function, is_minimization, options)]
         return self
 
     def set_solver(self, solver_api: Type['SolverApi']):
@@ -394,29 +398,38 @@ class Problem:
         self.constraints += self.pending_constraints
         self.pending_constraints = []
 
-        self.solver.set_objective(self.objective_function, self.is_minimization)
-
         return self
 
     def set_hotstart(self):
-        columns, values, lbs, ubs = zip(*[
-            (var.column, var.hotstart_value, var.lowerbound, var.upperbound)
+        columns, values = zip(*[
+            (var.column, var.hotstart_value)
             for var in self.variables
             if var.hotstart_value is not None
             and var.column is not None
             and (var.lowerbound or -INF) <= var.hotstart_value <= (var.upperbound or INF)
         ])
-        self.solver.set_hotstart(columns, values, lbs, ubs)
+        self.solver.set_hotstart(columns, values)
         return self
 
     def solve(self, with_hotstart: bool = False):
         "Updates and runs the solver for the optimization problem."
         if self.solver is None:
             raise Exception("The solver api should be set before solving.")
+
         self.update()
         if with_hotstart:
             self.set_hotstart()
-        self.solver.run(self.options)
+
+        if len(self.objective_functions) == 1:
+            objectivefunction, is_minimization, _ = self.objective_functions[0]
+            self.solver.set_objective(objectivefunction, is_minimization)
+            self.solver.run(self.options)
+            return self
+
+        return self.solver.run_multiobjective(self.objective_functions)
+
+    def fetch_solve_status(self):
+        self.solver.fetch_solve_status()
         return self
 
     def fetch_solution(self):
@@ -478,8 +491,8 @@ class SolverApi(ABC):
     solver_name: str = field(default=None, init=False)
     model: Any | None = field(default=None, init=False)
     solve_status: SolveStatus | None = field(default=None, init=False)
-    solution: dict[Variable, float] | None = field(default=None, init=False)
-    duals: dict[LinearConstraint, float] | None = field(default=None, init=False)
+    solution: list | dict | None = field(default=None, init=False)
+    duals: list | dict | None = field(default=None, init=False)
 
     def __post_init__(self):
         self.init_model()
@@ -561,6 +574,11 @@ class SolverApi(ABC):
         ...
 
     @abstractmethod
+    def get_objective_value(self) -> float:
+        "Returns the model's objective function value."
+        ...
+
+    @abstractmethod
     def get_solution(self, variable: Variable) -> float:
         "Returns the solution value of a variable."
         ...
@@ -576,17 +594,18 @@ class SolverApi(ABC):
         ...
 
     @abstractmethod
-    def set_hotstart(self,
-                     columns: list[int],
-                     values: list[float],
-                     lbs: list[float | None],
-                     ubs: list[float | None]) -> 'SolverApi':
+    def set_hotstart(self, columns: list[int], values: list[float]) -> 'SolverApi':
         "Provides the solver with an initial solution (even if it is partial one)."
         ...
 
     @abstractmethod
     def run(self, options: Optional[dict[str, Any]] = None) -> 'SolverApi':
         "Runs the solver to for the optimization problem."
+        ...
+
+    @abstractmethod
+    def run_multiobjective(self, objectives: list[tuple[LinearExpression, bool, Optional[dict[str, Any]]]]) -> 'SolverApi':
+        "Runs the solver to for the optimization problem with multiobjectives."
         ...
 
     def clear(self) -> 'SolverApi':

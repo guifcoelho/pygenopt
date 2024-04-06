@@ -1,4 +1,4 @@
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from typing import Any, Optional
 
 import highspy
@@ -12,6 +12,7 @@ from pygenopt import (
 class HiGHS(SolverApi):
 
     solver_name = 'HiGHS'
+    _hotstart_solution: list[float] | None = field(default=None, init=False, repr=False)
 
     @property
     def show_log(self):
@@ -90,9 +91,14 @@ class HiGHS(SolverApi):
         )
         return self
 
-    def set_objective(self, objetive_function: LinearExpression, is_minimization: bool = True):
-        vars, coefs = zip(*list(objetive_function.elements.items()))
-        self.model.changeColsCost(len(vars), [var.column for var in vars], coefs)
+    def set_objective(self, objetive_function: LinearExpression | Variable | float, is_minimization: bool = True):
+        objetive_function += LinearExpression()
+        num_vars = self.model.numVars
+        self.model.changeColsCost(num_vars, list(range(num_vars)), [0]*num_vars)
+        if len(objetive_function.elements) > 0:
+            vars, coefs = zip(*list(objetive_function.elements.items()))
+            self.model.changeColsCost(len(vars), [var.column for var in vars], coefs)
+
         self.model.changeObjectiveOffset(objetive_function.constant)
         self.model.changeObjectiveSense(
             highspy.ObjSense.kMinimize if is_minimization else highspy.ObjSense.kMaximize
@@ -105,6 +111,9 @@ class HiGHS(SolverApi):
 
     def get_option(self, name: str):
         return self.model.getOptionValue(name)
+
+    def get_objective_value(self):
+        return self.model.getObjectiveValue()
 
     def fetch_solution(self):
         self.solution = list(self.model.getSolution().col_value)
@@ -135,13 +144,26 @@ class HiGHS(SolverApi):
             case _:
                 self.solve_status = SolveStatus.UNKNOWN
 
-    def set_hotstart(self,
-                     columns: list[int],
-                     values: list[float],
-                     lowerbounds: list[float | None],
-                     upperbounds: list[float | None]):
-        current_show_log = self.show_log
+    def set_hotstart(self, columns: list[int], values: list[float]):
+        # With HiGHS, the hotstart solution should be set just before a new execution.
+        # When the model is changed the hotstart solution will then be reset.
+        # Therefore, the hotstart solution will be kept in a list and added later into the model.
 
+        # Also, the solver still lacks a clear way to add a partial solution into the model,
+        # therefore we will fix the variables values to the hotstart solution, and then capture the
+        # complete solution (if feasible) to add later into the model.
+        # See https://github.com/ERGO-Code/HiGHS/discussions/1401.
+
+        current_show_log = self.show_log
+        self._hotstart_solution = None
+        num_vars = self.model.numVars
+
+        if num_vars == len(columns):
+            self._hotstart_solution = values
+            return self
+
+        _, _, costs, lbs, ubs, *_ = self.model.getCols(num_vars, list(range(num_vars)))
+        self.set_objective(0)
         self.model.changeColsBounds(len(columns), columns, values, values)
         self.set_option('mip_rel_gap', highspy.kHighsInf)
         self._set_log(False)
@@ -151,24 +173,43 @@ class HiGHS(SolverApi):
 
         self.set_option('mip_rel_gap', 0)
         self._set_log(current_show_log)
-        self.model.changeColsBounds(
-            len(columns),
-            columns,
-            [lb or -highspy.kHighsInf for lb in lowerbounds],
-            [ub or highspy.kHighsInf for ub in upperbounds]
-        )
+        self.model.changeColsBounds(num_vars, list(range(num_vars)), lbs, ubs)
+        self.model.changeColsCost(num_vars, list(range(num_vars)), costs)
 
         if self.solve_status in [SolveStatus.OPTIMUM, SolveStatus.FEASIBLE]:
-            sol = highspy.HighsSolution()
-            sol.col_value = self.model.getSolution().col_value
-            self.model.setSolution(sol)
+            self._hotstart_solution = self.model.getSolution().col_value
+
+        return self
 
     def run(self, options: Optional[dict[str, Any]] = None):
         self._set_log(True)
         self.set_options(options or dict())
+
         if self.show_log:
             print(f"Solver: {self.solver_name} {self.get_version()}")
+
+        if self._hotstart_solution is not None:
+            sol = highspy.HighsSolution()
+            sol.col_value = self._hotstart_solution
+            self.model.setSolution(sol)
+
         self.model.run()
+
+        return self
+
+    def run_multiobjective(self, objectives: list[tuple[LinearExpression, bool, Optional[dict[str, Any]]]]):
+        for idx, (objectivefunction, is_minimization, options) in enumerate(objectives):
+            if self.show_log:
+                print(f">> Solving for objective #{idx+1}")
+
+            self.set_objective(objectivefunction, is_minimization)
+            self.run(options or dict())
+            self.fetch_solve_status()
+            if self.solve_status in [SolveStatus.FEASIBLE, SolveStatus.OPTIMUM]:
+                self.fetch_solution()
+                self.set_hotstart(list(range(len(self.solution))), self.solution)
+                self.add_constr(objectivefunction == self.get_objective_value())
+
         return self
 
     def clear(self):
