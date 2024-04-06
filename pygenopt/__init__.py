@@ -264,6 +264,7 @@ class Variable:
 
 @dataclass
 class ObjectiveFunction:
+    name: str | None = field(default=None)
     expression: "LinearExpression" = field(default_factory=LinearExpression)
     is_minimization: bool = True
     options: dict[str, Any] = field(default_factory=dict)
@@ -384,7 +385,7 @@ class Problem:
         if isinstance(objective, (Variable, float, int)):
             objective += LinearExpression()
         if isinstance(objective, LinearExpression):
-            objective = ObjectiveFunction(objective)
+            objective = ObjectiveFunction(expression=objective)
 
         self.objective_functions += [objective]
         return self

@@ -81,7 +81,7 @@ class HiGHS(SolverApi):
         if isinstance(objetive_function, (Variable | float | int)):
             objetive_function += LinearExpression()
         if isinstance(objetive_function, LinearExpression):
-            objetive_function = ObjectiveFunction(objetive_function)
+            objetive_function = ObjectiveFunction(expression=objetive_function)
 
         num_vars = self.model.numVars
         self.model.changeColsCost(num_vars, list(range(num_vars)), [0]*num_vars)
@@ -193,9 +193,10 @@ class HiGHS(SolverApi):
             if self.show_log:
                 if idx > 0:
                     print()
+                obj_name = f"'{objective.name}' " if objective.name is not None else ""
                 print(
-                    f">> Solving for objective {idx+1} of {len(objectives)} "
-                    f"(sense: {'Minimization' if objective.is_minimization else 'Maximization'})"
+                    f">> Solving for objective {obj_name}({idx+1} of {len(objectives)}, "
+                    f"sense: {'Minimization' if objective.is_minimization else 'Maximization'})"
                 )
 
             self.set_objective(objective)
