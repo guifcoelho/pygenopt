@@ -219,10 +219,5 @@ class HiGHS(SolverApi):
 
         return self
 
-    def clear(self) -> "HiGHS":
-        super().clear()
-        self.init_model()
-        return self
-
     def to_mps(self, path: str) -> None:
         self.model.writeModel(path)

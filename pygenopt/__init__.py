@@ -734,6 +734,7 @@ class SolverApi(ABC):
         "Clears the model."
         self.solution.clear()
         self.duals.clear()
+        self.init_model()
         return self
 
     @abstractmethod
