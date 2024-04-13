@@ -1,5 +1,5 @@
 from dataclasses import dataclass, field
-from typing import Any, Optional
+from typing import Any, Optional, Callable
 
 import highspy
 
@@ -14,30 +14,32 @@ from pygenopt import (
 class HiGHS(SolverApi):
 
     solver_name = 'HiGHS'
+    solution: list[float] | None = field(default=None, init=False, repr=False)
+    duals: list[float] | None = field(default=None, init=False, repr=False)
     _hotstart_solution: list[float] | None = field(default=None, init=False, repr=False)
 
     @property
-    def show_log(self):
+    def show_log(self) -> bool:
         if self.model is None:
             raise ValueError("The solver model was not set.")
         return bool(self.get_option('output_flag'))
 
-    def init_model(self):
+    def init_model(self) -> "HiGHS":
         self.model = highspy.Highs()
         self._set_log(False)
         return self
 
-    def _set_log(self, flag: bool):
+    def _set_log(self, flag: bool) -> "HiGHS":
         self.set_option('output_flag', 'true' if flag else 'false')
         return self
 
-    def get_version(self):
+    def get_version(self) -> str:
         return f"v{self.model.version()}"
 
-    def add_var(self, variable: Variable):
+    def add_var(self, variable: Variable) -> "HiGHS":
         return self.add_vars([variable])
 
-    def add_vars(self, variables: list[Variable]):
+    def add_vars(self, variables: list[Variable]) -> "HiGHS":
         lbs = [
             0 if var.vartype == VarType.BIN else (-highspy.kHighsInf if var.lowerbound is None else var.lowerbound)
             for var in variables
@@ -54,30 +56,31 @@ class HiGHS(SolverApi):
 
         return self
 
-    def del_var(self, variable: Variable):
+    def del_var(self, variable: Variable) -> "HiGHS":
         self.model.deleteCols(1, [variable.column])
         return self
 
-    def del_vars(self, variables: list[Variable]):
+    def del_vars(self, variables: list[Variable]) -> "HiGHS":
         self.model.deleteCols(len(variables), [variable.column for variable in variables])
         return self
 
-    def add_constr(self, constr: LinearConstraint):
+    def add_constr(self, constr: LinearConstraint) -> "HiGHS":
         vars, coefs = zip(*list(constr.expression.elements.items()))
         for var in vars:
             if var.column is None:
                 raise Exception("All variables need to be added to the model prior to adding constraints.")
 
         self.model.addRow(
-            -highspy.kHighsInf if constr.sign == ConstraintSign.LEQ else -constr.expression.constant,
-            highspy.kHighsInf if constr.sign == ConstraintSign.GEQ else -constr.expression.constant,
+            -highspy.kHighsInf if constr.sign == ConstraintSign.LEQ else constr.expression.constant,
+            highspy.kHighsInf if constr.sign == ConstraintSign.GEQ else constr.expression.constant,
             len(vars),
             [var.column for var in vars],
             coefs
         )
+        self.model.passRowName(constr.row, constr.default_name)
         return self
 
-    def set_objective(self, objetive_function: ObjectiveFunction | Variable | LinearExpression | float | int):
+    def set_objective(self, objetive_function: ObjectiveFunction | Variable | LinearExpression | float | int) -> "HiGHS":
         if isinstance(objetive_function, (Variable | float | int)):
             objetive_function += LinearExpression()
         if isinstance(objetive_function, LinearExpression):
@@ -95,21 +98,21 @@ class HiGHS(SolverApi):
         )
         return self
 
-    def set_option(self, name: str, value: Any):
+    def set_option(self, name: str, value: Any) -> "HiGHS":
         self.model.setOptionValue(name, value)
         return self
 
-    def get_option(self, name: str):
+    def get_option(self, name: str) -> Any:
         return self.model.getOptionValue(name)
 
-    def get_objective_value(self):
+    def get_objective_value(self) -> float | None:
         return self.model.getObjectiveValue()
 
-    def fetch_solution(self):
+    def fetch_solution(self) -> "HiGHS":
         self.solution = list(self.model.getSolution().col_value)
         return self
 
-    def fetch_duals(self) -> SolverApi:
+    def fetch_duals(self) -> "HiGHS":
         self.duals = list(self.model.getSolution().row_dual)
         return self
 
@@ -123,7 +126,7 @@ class HiGHS(SolverApi):
             self.fetch_duals()
         return self.duals[constraint.row]
 
-    def fetch_solve_status(self):
+    def fetch_solve_status(self) -> "HiGHS":
         match self.model.getModelStatus():
             case highspy.HighsModelStatus.kOptimal:
                 self.solve_status = SolveStatus.OPTIMUM
@@ -135,7 +138,7 @@ class HiGHS(SolverApi):
                 self.solve_status = SolveStatus.UNKNOWN
         return self
 
-    def set_hotstart(self, columns: list[int], values: list[float]):
+    def set_hotstart(self, columns: list[int], values: list[float]) -> "HiGHS":
         # With HiGHS, the hotstart solution should be set just before a new execution.
         # When the model is changed the hotstart solution will then be reset.
         # Therefore, the hotstart solution will be kept in a list and added later into the model.
@@ -172,7 +175,7 @@ class HiGHS(SolverApi):
 
         return self
 
-    def run(self, options: Optional[dict[str, Any]] = None):
+    def run(self, options: Optional[dict[str, Any]] = None) -> "HiGHS":
         self._set_log(True)
         self.set_options(options or dict())
 
@@ -188,7 +191,10 @@ class HiGHS(SolverApi):
 
         return self
 
-    def run_multiobjective(self, objectives: list[ObjectiveFunction], options: Optional[dict[str, Any]] = None):
+    def run_multiobjective(self,
+                           objectives: list[ObjectiveFunction],
+                           add_constr_callback: Callable[[LinearConstraint], None],
+                           options: Optional[dict[str, Any]] = None) -> "HiGHS":
         for idx, objective in enumerate(objectives):
             if self.show_log:
                 if idx > 0:
@@ -206,13 +212,17 @@ class HiGHS(SolverApi):
             if self.solve_status in [SolveStatus.FEASIBLE, SolveStatus.OPTIMUM] and idx < len(objectives) - 1:
                 self.fetch_solution()
                 self.set_hotstart(list(range(len(self.solution))), self.solution)
-                self.add_constr(objective.expression == self.get_objective_value())
+
+                add_constr_callback(objective.expression == self.get_objective_value())
             else:
                 break
 
         return self
 
-    def clear(self):
+    def clear(self) -> "HiGHS":
         super().clear()
         self.init_model()
         return self
+
+    def to_mps(self, path: str) -> None:
+        self.model.writeModel(path)
