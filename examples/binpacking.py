@@ -33,14 +33,7 @@ def main():
     greedy_bins = solveGreedyModel()
     B = len(greedy_bins)
 
-    prob = opt.Problem(
-        name='BinPacking',
-        solver_api=HiGHS,
-        options={
-            'mip_abs_gap': 1-1e-5,
-            'random_seed': SEED,
-        }
-    )
+    prob = opt.Problem(name='BinPacking', solver_api=HiGHS)
 
     x = {
         (i,j): opt.Variable(f"x({i},{j})", vartype=opt.VarType.BIN)
