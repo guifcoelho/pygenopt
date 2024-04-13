@@ -1,6 +1,6 @@
 from enum import Enum
 from dataclasses import dataclass, field, InitVar
-from typing import Optional, Any, Type
+from typing import Optional, Any, Type, Callable
 from abc import ABC, abstractmethod
 from contextlib import suppress
 import time
@@ -111,13 +111,19 @@ class LinearExpression:
         return self._multiplication(coef, False)
 
     def __eq__(self, rhs: 'LinearExpression | Variable | float | int'):
-        return LinearConstraint((LinearExpression() + (self - rhs), ConstraintSign.EQ))
+        constr = LinearConstraint((LinearExpression() + (self - rhs), ConstraintSign.EQ))
+        constr.expression.constant *= -1
+        return constr
 
     def __le__(self, rhs: 'LinearExpression | Variable | float | int'):
-        return LinearConstraint((LinearExpression() + (self - rhs), ConstraintSign.LEQ))
+        constr = LinearConstraint((LinearExpression() + (self - rhs), ConstraintSign.LEQ))
+        constr.expression.constant *= -1
+        return constr
 
     def __ge__(self, rhs: 'LinearExpression | Variable | float | int'):
-        return LinearConstraint((LinearExpression() + (self - rhs), ConstraintSign.GEQ))
+        constr = LinearConstraint((LinearExpression() + (self - rhs), ConstraintSign.GEQ))
+        constr.expression.constant *= -1
+        return constr
 
     def __neg__(self):
         return LinearExpression() - self
@@ -156,6 +162,15 @@ class LinearConstraint:
             raise Exception("The hash string of the 'LinearConstraint' object was not set.")
         return self._hash
 
+    @property
+    def default_name(self):
+        if self._default_name is None:
+            raise Exception(
+                "The default name of this constraint was not set. "
+                "Add this constraint to the problem and run `problem.update()`"
+            )
+        return self._default_name
+
     def set_default_name(self, row: int):
         "Sets a default name to be provided to the solver."
         self._default_name = f"__constr{row}"
@@ -182,12 +197,35 @@ class Variable:
 
     _hash: str | None = field(default=None, init=False)
     _default_name: str | None = field(default=None, init=False)
+    _solver_var: Any | None = field(default=None, init=False, repr=False)
 
     def __post_init__(self):
         self._hash = hash(f"{time.perf_counter_ns()}{random.random()}")
         if self.vartype == VarType.BIN:
             self.lowerbound = 0
             self.upperbound = 1
+
+    @property
+    def default_name(self):
+        if self._default_name is None:
+            raise Exception(
+                "The default name of this variable was not set. "
+                "Add this variable to the problem and run `problem.update()`"
+            )
+        return self._default_name
+
+    @property
+    def solver_var(self):
+        if self._solver_var is None:
+            raise Exception(
+                "The actual solver variable was not set. "
+                "Add this variable to the problem and run `problem.update()`"
+            )
+        return self._solver_var
+
+    def set_solvervar(self, solver_var: Any) -> 'Variable':
+        self._solver_var = solver_var
+        return self
 
     def __hash__(self):
         if self._hash is None:
@@ -242,15 +280,6 @@ class Variable:
         self._default_name = f"__var{column}"
         return self
 
-    @property
-    def default_name(self):
-        if self._default_name is None:
-            raise ValueError(
-                "The default name of this variable was not set. "
-                "Add this variable to the problem and run `problem.update()`"
-            )
-        return self._default_name
-
     def set_hotstart(self, value: float):
         "Sets the value to be used as initial solution on the solver."
         self.hotstart_value = value
@@ -291,6 +320,70 @@ class Problem:
     def __post_init__(self, solver_api: Type['SolverApi']):
         if solver_api is not None:
             self.solver = solver_api()
+
+    @property
+    def solve_status(self):
+        return self.solver.solve_status or SolveStatus.NOT_SOLVED
+
+    def get_vars_bycolumn(self, columns: list[int]) -> list[Variable]:
+        "Finds some variables by searching for column numbers. It will ignore any pending variables."
+        return [var for var in self.variables if var.column in columns]
+
+    def get_var_bycolumn(self, column: int) -> Variable:
+        """
+        Finds a variable by searching for its column number. It will ignore any pending variables.
+
+        It will raise a `KeyError` exception if no variable is found.
+        """
+        filter_vars = self.get_vars_bycolumn([column])
+        if not filter_vars:
+            raise KeyError(f"There is no variable with column number '{column}'.")
+        return filter_vars[0]
+
+    def get_vars_byname(self, names: list[str]) -> list[Variable]:
+        "Finds some variables by searching for a list of names. It will ignore pending ones."
+        return [var for var in self.variables if var.name in names or var._default_name in names]
+
+    def get_var_byname(self, name: str) -> Variable:
+        """
+        Finds a variable by searching for its name. It will ignore pending ones.
+
+        It will raise a `KeyError` exception if no variable is found.
+        """
+        filter_vars = self.get_vars_byname([name])
+        if not filter_vars:
+            raise KeyError(f"There is no variable with name '{name}'.")
+        return filter_vars[0]
+
+    def get_constrs_byrow(self, rows: list[int]) -> list[LinearConstraint]:
+        "Finds some constraints by searching for row numbers. It will ignore pending ones."
+        return [constr for constr in self.constraints if constr.row in rows]
+
+    def get_constr_byrow(self, row: int) -> Variable:
+        """
+        Finds a constraint by searching for its row number. It will ignore pending ones.
+
+        It will raise a `KeyError` exception if no constraint is found.
+        """
+        filter_constrs = self.get_constrs_byrow([row])
+        if not filter_constrs:
+            raise KeyError(f"There is no constraint with row number '{row}'.")
+        return filter_constrs[0]
+
+    def get_constrs_byname(self, names: list[str]) -> list[LinearConstraint]:
+        "Finds some constraints by searching for a list of names. It will ignore pending ones."
+        return [constr for constr in self.constraints if constr.name in names or constr._default_name in names]
+
+    def get_constr_byname(self, name: str) -> Variable:
+        """
+        Finds a contraint by searching for its name. It will ignore pending ones.
+
+        It will raise a `KeyError` exception if no constraint is found.
+        """
+        filter_constrs = [constr for constr in self.constraints if constr.name == name or constr._default_name == name]
+        if not filter_constrs:
+            raise KeyError(f"There is no constraint with name '{name}'.")
+        return filter_constrs[0]
 
     def set_option(self, name: str, value):
         "Sets the solver option"
@@ -450,10 +543,14 @@ class Problem:
         if len(self.objective_functions) == 1:
             objective = self.objective_functions[0]
             self.solver.set_objective(objective)
-            self.solver.run(objective.options or self.options)
+            self.solver.run(objective.options or self.options or dict())
             return self
 
-        self.solver.run_multiobjective(self.objective_functions, self.options)
+        def add_constr_callback(constr: LinearConstraint):
+            self.add_constr(constr)
+            self.update()
+
+        self.solver.run_multiobjective(self.objective_functions, add_constr_callback, self.options or dict())
         return self
 
     def fetch_solve_status(self):
@@ -513,17 +610,18 @@ class Problem:
             self.solver.clear()
         return self
 
-    @property
-    def solve_status(self):
-        return self.solver.solve_status or SolveStatus.NOT_SOLVED
+    def to_mps(self, path: str) -> None:
+        "Exports the model to an MPS file. It will ignore pending variables and constraints."
+        self.solver.to_mps(path)
+
 
 @dataclass
 class SolverApi(ABC):
     solver_name: str = field(default=None, init=False)
-    model: Any | None = field(default=None, init=False)
+    model: Any | None = field(default=None, init=False, repr=False)
     solve_status: SolveStatus | None = field(default=None, init=False)
-    solution: list | dict | None = field(default=None, init=False)
-    duals: list | dict | None = field(default=None, init=False)
+    solution: list | dict | None = field(default=None, init=False, repr=False)
+    duals: list | dict | None = field(default=None, init=False, repr=False)
 
     def __post_init__(self):
         self.init_model()
@@ -567,7 +665,7 @@ class SolverApi(ABC):
         return self
 
     @abstractmethod
-    def set_objective(self, expr: LinearExpression, is_minimization: bool = True) -> 'SolverApi':
+    def set_objective(self, objetive_function: ObjectiveFunction | Variable | LinearExpression | float | int) -> "SolverApi":
         "Sets the problem objective function to the solver."
         ...
 
@@ -635,8 +733,15 @@ class SolverApi(ABC):
         ...
 
     @abstractmethod
-    def run_multiobjective(self, objectives: list[tuple[LinearExpression, bool, Optional[dict[str, Any]]]]) -> 'SolverApi':
-        "Runs the solver for the optimization problem with multiples objectives."
+    def run_multiobjective(self,
+                           objectives: list[ObjectiveFunction],
+                           add_constr_callback: Callable[[LinearConstraint], None],
+                           options: Optional[dict[str, Any]] = None) -> 'SolverApi':
+        """
+        Runs the solver for the optimization problem with multiples objectives.
+
+        The callback function must be run for every new constraint added to the model.
+        """
         ...
 
     def clear(self) -> 'SolverApi':
@@ -644,3 +749,7 @@ class SolverApi(ABC):
         self.solution.clear()
         self.duals.clear()
         return self
+
+    @abstractmethod
+    def to_mps(self, path: str) -> None:
+        "Exports the model to file in the MPS format."
