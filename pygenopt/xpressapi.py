@@ -32,8 +32,7 @@ class Xpress(SolverApi):
             case VarType.CNT:
                 solver_var = xp.var(name=variable.default_name, vartype=xp.continuous, lb=lb, ub=ub)
 
-        variable.set_solvervar(solver_var)
-        return variable.solver_var
+        return solver_var
 
     def add_var(self, variable: Variable) -> 'Xpress':
         self.model.addVariable(self._to_xpvar(variable))
@@ -51,10 +50,12 @@ class Xpress(SolverApi):
 
     def add_constr(self, constraint: LinearConstraint) -> 'Xpress':
         for var in constraint.expression.elements:
-            if var.column is None or var.solver_var is None:
+            if var.column is None:
                 raise Exception("All variables need to be added to the model prior to adding constraints.")
 
-        lhs = xp.Sum([var.solver_var * coef for var, coef in constraint.expression.elements.items()])
+        vars, coefs = zip(*list(constraint.expression.elements.items()))
+        xpvars = self.model.getVariable([var.column for var in vars])
+        lhs = xp.Sum([xpvar * coef for xpvar, coef in zip(xpvars, coefs)])
         match constraint.sign:
             case ConstraintSign.EQ:
                 self.model.addConstraint(lhs == constraint.expression.constant)
@@ -71,8 +72,11 @@ class Xpress(SolverApi):
         if isinstance(objetive_function, LinearExpression):
             objetive_function = ObjectiveFunction(expression=objetive_function)
 
+        vars, coefs = zip(*list(objetive_function.expression.elements.items()))
+        xpvars = self.model.getVariable([var.column for var in vars])
+
         self.model.setObjective(
-            xp.Sum([var.solver_var * coef for var, coef in objetive_function.expression.elements.items()]),
+            xp.Sum([xpvar * coef for xpvar, coef in zip(xpvars, coefs)]),
             sense=xp.minimize if objetive_function.is_minimization else xp.maximize
         )
         return self
@@ -121,7 +125,14 @@ class Xpress(SolverApi):
         return self
 
     def set_hotstart(self, columns: list[int], values: list[float]) -> 'Xpress':
-        self.model.addmipsol(values, columns, "hotstart")
+        if len(columns) == self.model.attributes.cols:
+            _, vals = zip(*sorted(
+                [(idx, val) for idx, val in enumerate(values)],
+                key=lambda el: el[0]
+            ))
+            self.model.loadmipsol(list(vals))
+        else:
+            self.model.addmipsol(values, columns, "hotstart")
         return self
 
     def run(self, options: Optional[dict[str, Any]] = None) -> 'Xpress':

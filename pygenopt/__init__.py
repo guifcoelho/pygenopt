@@ -197,7 +197,6 @@ class Variable:
 
     _hash: str | None = field(default=None, init=False)
     _default_name: str | None = field(default=None, init=False)
-    _solver_var: Any | None = field(default=None, init=False, repr=False)
 
     def __post_init__(self):
         self._hash = hash(f"{time.perf_counter_ns()}{random.random()}")
@@ -213,19 +212,6 @@ class Variable:
                 "Add this variable to the problem and run `problem.update()`"
             )
         return self._default_name
-
-    @property
-    def solver_var(self):
-        if self._solver_var is None:
-            raise Exception(
-                "The actual solver variable was not set. "
-                "Add this variable to the problem and run `problem.update()`"
-            )
-        return self._solver_var
-
-    def set_solvervar(self, solver_var: Any) -> 'Variable':
-        self._solver_var = solver_var
-        return self
 
     def __hash__(self):
         if self._hash is None:
