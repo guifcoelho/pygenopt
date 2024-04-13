@@ -17,6 +17,10 @@ class Xpress(SolverApi):
     def __post_init__(self):
         self.init_model()
 
+    @property
+    def show_log(self):
+        return self.model.getControl('OUTPUTLOG') > 0
+
     def init_model(self) -> 'Xpress':
         self.model = xp.problem()
         return self
@@ -53,9 +57,12 @@ class Xpress(SolverApi):
             if var.column is None:
                 raise Exception("All variables need to be added to the model prior to adding constraints.")
 
-        vars, coefs = zip(*list(constraint.expression.elements.items()))
-        xpvars = self.model.getVariable([var.column for var in vars])
+        xpvars, coefs = [], []
+        if len(constraint.expression.elements) > 0:
+            vars, coefs = zip(*list(constraint.expression.elements.items()))
+            xpvars = self.model.getVariable([var.column for var in vars])
         lhs = xp.Sum([xpvar * coef for xpvar, coef in zip(xpvars, coefs)])
+
         match constraint.sign:
             case ConstraintSign.EQ:
                 self.model.addConstraint(lhs == constraint.expression.constant)
@@ -72,11 +79,13 @@ class Xpress(SolverApi):
         if isinstance(objetive_function, LinearExpression):
             objetive_function = ObjectiveFunction(expression=objetive_function)
 
-        vars, coefs = zip(*list(objetive_function.expression.elements.items()))
-        xpvars = self.model.getVariable([var.column for var in vars])
+        xpvars, coefs = [], []
+        if len(objetive_function.expression.elements) > 0:
+            vars, coefs = zip(*list(objetive_function.expression.elements.items()))
+            xpvars = self.model.getVariable([var.column for var in vars])
 
         self.model.setObjective(
-            xp.Sum([xpvar * coef for xpvar, coef in zip(xpvars, coefs)]),
+            xp.Sum([xpvar * coef for xpvar, coef in zip(xpvars, coefs)]) + objetive_function.expression.constant,
             sense=xp.minimize if objetive_function.is_minimization else xp.maximize
         )
         return self
@@ -126,11 +135,11 @@ class Xpress(SolverApi):
 
     def set_hotstart(self, columns: list[int], values: list[float]) -> 'Xpress':
         if len(columns) == self.model.attributes.cols:
-            _, vals = zip(*sorted(
+            _, sorted_values_by_index = zip(*sorted(
                 [(idx, val) for idx, val in enumerate(values)],
                 key=lambda el: el[0]
             ))
-            self.model.loadmipsol(list(vals))
+            self.model.loadmipsol(list(sorted_values_by_index))
         else:
             self.model.addmipsol(values, columns, "hotstart")
         return self
@@ -139,9 +148,6 @@ class Xpress(SolverApi):
         self.set_options(options)
         self.model.optimize()
         return self
-
-    def run_multiobjective(self, objectives: list[tuple[LinearExpression, bool, Optional[dict[str, Any]]]]) -> 'Xpress':
-        raise NotImplementedError()
 
     def to_mps(self, path: str) -> None:
         self.model.write(path, 'x')

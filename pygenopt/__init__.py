@@ -279,9 +279,9 @@ class Variable:
 
 @dataclass
 class ObjectiveFunction:
-    name: str | None = field(default=None)
     expression: "LinearExpression" = field(default_factory=LinearExpression)
     is_minimization: bool = True
+    name: str | None = field(default=None)
     options: dict[str, Any] = field(default_factory=dict)
 
     def __post_init__(self):
@@ -612,6 +612,11 @@ class SolverApi(ABC):
     def __post_init__(self):
         self.init_model()
 
+    @property
+    @abstractmethod
+    def show_log(self):
+        ...
+
     @abstractmethod
     def init_model(self) -> 'SolverApi':
         "Initializes the solver."
@@ -718,7 +723,6 @@ class SolverApi(ABC):
         "Runs the solver for the optimization problem with a single objective."
         ...
 
-    @abstractmethod
     def run_multiobjective(self,
                            objectives: list[ObjectiveFunction],
                            add_constr_callback: Callable[[LinearConstraint], None],
@@ -728,7 +732,29 @@ class SolverApi(ABC):
 
         The callback function must be run for every new constraint added to the model.
         """
-        ...
+        for idx, objective in enumerate(objectives):
+            if self.show_log:
+                if idx > 0:
+                    print()
+                obj_name = f"'{objective.name}' " if objective.name is not None else ""
+                print(
+                    f">> Solving for objective {obj_name}({idx+1} of {len(objectives)}, "
+                    f"sense: {'Minimization' if objective.is_minimization else 'Maximization'})"
+                )
+
+            self.set_objective(objective)
+            self.run(objective.options or options)
+            self.fetch_solve_status()
+
+            if self.solve_status in [SolveStatus.FEASIBLE, SolveStatus.OPTIMUM] and idx < len(objectives) - 1:
+                self.fetch_solution()
+                self.set_hotstart(list(range(len(self.solution))), self.solution)
+
+                add_constr_callback(objective.expression == self.get_objective_value())
+            else:
+                break
+
+        return self
 
     def clear(self) -> 'SolverApi':
         "Clears the model."

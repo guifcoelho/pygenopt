@@ -1,5 +1,5 @@
 from dataclasses import dataclass, field
-from typing import Any, Optional, Callable
+from typing import Any, Optional
 
 import highspy
 
@@ -153,7 +153,11 @@ class HiGHS(SolverApi):
         num_vars = self.model.numVars
 
         if num_vars == len(columns):
-            self._hotstart_solution = values
+            _, sorted_values_by_index = zip(*sorted(
+                [(idx, val) for idx, val in enumerate(values)],
+                key=lambda el: el[0]
+            ))
+            self._hotstart_solution = list(sorted_values_by_index)
             return self
 
         _, _, costs, lbs, ubs, *_ = self.model.getCols(num_vars, list(range(num_vars)))
@@ -188,34 +192,6 @@ class HiGHS(SolverApi):
             self.model.setSolution(sol)
 
         self.model.run()
-
-        return self
-
-    def run_multiobjective(self,
-                           objectives: list[ObjectiveFunction],
-                           add_constr_callback: Callable[[LinearConstraint], None],
-                           options: Optional[dict[str, Any]] = None) -> "HiGHS":
-        for idx, objective in enumerate(objectives):
-            if self.show_log:
-                if idx > 0:
-                    print()
-                obj_name = f"'{objective.name}' " if objective.name is not None else ""
-                print(
-                    f">> Solving for objective {obj_name}({idx+1} of {len(objectives)}, "
-                    f"sense: {'Minimization' if objective.is_minimization else 'Maximization'})"
-                )
-
-            self.set_objective(objective)
-            self.run(objective.options or options)
-            self.fetch_solve_status()
-
-            if self.solve_status in [SolveStatus.FEASIBLE, SolveStatus.OPTIMUM] and idx < len(objectives) - 1:
-                self.fetch_solution()
-                self.set_hotstart(list(range(len(self.solution))), self.solution)
-
-                add_constr_callback(objective.expression == self.get_objective_value())
-            else:
-                break
 
         return self
 

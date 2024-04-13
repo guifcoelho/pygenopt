@@ -10,6 +10,7 @@
 
 import pygenopt as opt
 from pygenopt.highsapi import HiGHS
+from pygenopt.xpressapi import Xpress
 
 # Decision variables for the number of products to make of each type
 produceA = opt.Variable(name="produceA", vartype=opt.VarType.INT, lowerbound=0)

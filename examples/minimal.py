@@ -1,5 +1,6 @@
 import pygenopt as opt
 from pygenopt.xpressapi import Xpress
+from pygenopt.highsapi import HiGHS
 
 
 def main():
@@ -19,9 +20,11 @@ def main():
         .solve()
         .fetch_solution()
     )
-    print(prob.solve_status)
+    print("Solve status:", prob.solve_status)
+    print("Objective function value:", prob.get_objectivefunction_value())
 
-    print(x1.value, x2.value)
+    print("x1:", x1.value)
+    print("x2:", x2.value)
 
     prob.to_mps('minimimal.mps')
 
