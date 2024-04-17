@@ -237,7 +237,7 @@ class Problem:
         self.solver.set_hotstart(columns, values)
         return self
 
-    def solve(self, with_hotstart: bool = False):
+    def solve(self, with_hotstart: bool = False, fetch_solution: bool = True, fetch_duals: bool = False):
         "Updates and runs the solver for the optimization problem."
         if self.solver is None:
             raise Exception("The solver api should be set before solving.")
@@ -250,13 +250,20 @@ class Problem:
             objective = self.objective_functions[0]
             self.solver.set_objective(objective)
             self.solver.run(objective.options or self.options or dict())
-            return self
 
-        def add_constr_callback(constr: LinearConstraint):
-            self.add_constr(constr)
-            self.update()
+        else:
+            def add_constr_callback(constr: LinearConstraint):
+                self.add_constr(constr)
+                self.update()
 
-        self.solver.run_multiobjective(self.objective_functions, add_constr_callback, self.options or dict())
+            self.solver.run_multiobjective(self.objective_functions, add_constr_callback, self.options or dict())
+
+        if fetch_solution:
+            self.fetch_solution()
+
+        if fetch_duals:
+            self.fetch_duals()
+
         return self
 
     def fetch_solve_status(self):

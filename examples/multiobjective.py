@@ -68,7 +68,6 @@ prob = (
 		surplus_assembly + deficit_assembly
 	)
 	.solve()
-	.fetch_solution()
 )
 
 if prob.solve_status in [opt.SolveStatus.FEASIBLE, opt.SolveStatus.OPTIMUM]:

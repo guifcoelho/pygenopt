@@ -18,7 +18,6 @@ def main():
         .add_constrs(constr1, constr2)
         .set_objective(opt.ObjectiveFunction(objective_function, is_minimization=False))
         .solve()
-        .fetch_solution()
     )
     print("Solve status:", prob.solve_status)
     print("Objective function value:", prob.get_objectivefunction_value())
