@@ -3,7 +3,7 @@ from typing import Any, Type
 from contextlib import suppress
 
 from pygenopt import Variable, LinearConstraint, ObjectiveFunction, SolveStatus, LinearExpression
-from pygenopt.abstractsolverapi import SolverApi
+from pygenopt.solvers.abstractsolverapi import AbstractSolverApi
 from pygenopt.constants import INF
 
 
@@ -12,10 +12,10 @@ class Problem:
     "The optimization problem class"
 
     name: str = None
-    solver_api: InitVar[Type['SolverApi']] = None
+    solver_api: InitVar[Type["AbstractSolverApi"]] = None
     options: dict[str, Any] = field(default_factory=dict)
 
-    solver: 'SolverApi' = field(default=None, init=False)
+    solver: "AbstractSolverApi" = field(default=None, init=False)
     variables: list[Variable] = field(default_factory=list, init=False)
     pending_variables: list[Variable] = field(default_factory=list, init=False)
     deleting_variables: list[Variable] = field(default_factory=list, init=False)
@@ -23,7 +23,7 @@ class Problem:
     pending_constraints: list[LinearConstraint] = field(default_factory=list, init=False)
     objective_functions: list[ObjectiveFunction] = field(default_factory=list, init=False)
 
-    def __post_init__(self, solver_api: Type['SolverApi']):
+    def __post_init__(self, solver_api: Type["AbstractSolverApi"]):
         if solver_api is not None:
             self.solver = solver_api()
 
@@ -189,7 +189,7 @@ class Problem:
         self.objective_functions += [objective]
         return self
 
-    def set_solver(self, solver_api: Type['SolverApi']):
+    def set_solver(self, solver_api: Type["AbstractSolverApi"]):
         "Sets the solver from the given interface."
         self.solver = solver_api()
         return self

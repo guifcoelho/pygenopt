@@ -6,7 +6,7 @@ from pygenopt import SolveStatus, Variable, LinearConstraint, ObjectiveFunction,
 
 
 @dataclass
-class SolverApi(ABC):
+class AbstractSolverApi(ABC):
     solver_name: str = field(default=None, init=False)
     model: Any | None = field(default=None, init=False, repr=False)
     solve_status: SolveStatus | None = field(default=None, init=False)
@@ -22,54 +22,54 @@ class SolverApi(ABC):
         ...
 
     @abstractmethod
-    def init_model(self) -> 'SolverApi':
+    def init_model(self) -> "AbstractSolverApi":
         "Initializes the solver."
         ...
 
     @abstractmethod
-    def add_var(self, variable: Variable) -> 'SolverApi':
+    def add_var(self, variable: Variable) -> "AbstractSolverApi":
         "Adds a variable to the solver."
         ...
 
-    def add_vars(self, variables: list[Variable]) -> 'SolverApi':
+    def add_vars(self, variables: list[Variable]) -> "AbstractSolverApi":
         "Adds some variables to the solver."
         for var in variables:
             self.add_var(var)
         return self
 
     @abstractmethod
-    def del_var(self, variable: Variable) -> 'SolverApi':
+    def del_var(self, variable: Variable) -> "AbstractSolverApi":
         "Deletes the whole column from the actual optimization model."
         ...
 
-    def del_vars(self, variables: list[Variable]) -> 'SolverApi':
+    def del_vars(self, variables: list[Variable]) -> "AbstractSolverApi":
         "Deletes whole columns from the actual optimization model."
         for var in variables:
             self.del_var(var)
         return self
 
     @abstractmethod
-    def add_constr(self, constraint: LinearConstraint) -> 'SolverApi':
+    def add_constr(self, constraint: LinearConstraint) -> "AbstractSolverApi":
         "Adds a contraint to the solver."
         ...
 
-    def add_constrs(self, constrs: list[LinearConstraint]) -> 'SolverApi':
+    def add_constrs(self, constrs: list[LinearConstraint]) -> "AbstractSolverApi":
         "Adds some constraints to the solver."
         for constr in constrs:
             self.add_constr(constr)
         return self
 
     @abstractmethod
-    def set_objective(self, objetive_function: ObjectiveFunction | Variable | LinearExpression | float | int) -> "SolverApi":
+    def set_objective(self, objetive_function: ObjectiveFunction | Variable | LinearExpression | float | int) -> "AbstractSolverApi":
         "Sets the problem objective function to the solver."
         ...
 
     @abstractmethod
-    def set_option(self, name: str, value) -> 'SolverApi':
+    def set_option(self, name: str, value) -> "AbstractSolverApi":
         "Sets an option to the solver."
         ...
 
-    def set_options(self, options: dict[str, Any]) -> 'SolverApi':
+    def set_options(self, options: dict[str, Any]) -> "AbstractSolverApi":
         "Sets some options to the solver."
         for name, val in options.items():
             self.set_option(name, val)
@@ -88,12 +88,12 @@ class SolverApi(ABC):
         }
 
     @abstractmethod
-    def fetch_solution(self) -> 'SolverApi':
+    def fetch_solution(self) -> "AbstractSolverApi":
         "Retrieve all solution values after a solve."
         ...
 
     @abstractmethod
-    def fetch_duals(self) -> 'SolverApi':
+    def fetch_duals(self) -> "AbstractSolverApi":
         "Retrieves all dual values after a solve."
         ...
 
@@ -113,24 +113,24 @@ class SolverApi(ABC):
         ...
 
     @abstractmethod
-    def fetch_solve_status(self) -> 'SolverApi':
+    def fetch_solve_status(self) -> "AbstractSolverApi":
         "Sets the status of the solving process"
         ...
 
     @abstractmethod
-    def set_hotstart(self, columns: list[int], values: list[float]) -> 'SolverApi':
+    def set_hotstart(self, columns: list[int], values: list[float]) -> "AbstractSolverApi":
         "Provides the solver with an initial solution (even if it is partial one)."
         ...
 
     @abstractmethod
-    def run(self, options: Optional[dict[str, Any]] = None) -> 'SolverApi':
+    def run(self, options: Optional[dict[str, Any]] = None) -> "AbstractSolverApi":
         "Runs the solver for the optimization problem with a single objective."
         ...
 
     def run_multiobjective(self,
                            objectives: list[ObjectiveFunction],
                            add_constr_callback: Callable[[LinearConstraint], None],
-                           options: Optional[dict[str, Any]] = None) -> 'SolverApi':
+                           options: Optional[dict[str, Any]] = None) -> "AbstractSolverApi":
         """
         Runs the solver for the optimization problem with multiples objectives.
 
@@ -160,7 +160,7 @@ class SolverApi(ABC):
 
         return self
 
-    def clear(self) -> 'SolverApi':
+    def clear(self) -> "AbstractSolverApi":
         "Clears the model."
         self.solution.clear()
         self.duals.clear()

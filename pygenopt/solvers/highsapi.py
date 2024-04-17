@@ -5,11 +5,11 @@ import highspy
 
 from pygenopt import *
 from pygenopt.enums import ConstraintSign
-from pygenopt.abstractsolverapi import SolverApi
+from pygenopt.solvers.abstractsolverapi import AbstractSolverApi
 
 
 @dataclass
-class HighsApi(SolverApi):
+class HighsApi(AbstractSolverApi):
 
     solver_name = 'HiGHS'
     solution: list[float] | None = field(default=None, init=False, repr=False)

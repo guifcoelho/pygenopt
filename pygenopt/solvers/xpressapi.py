@@ -5,11 +5,11 @@ import xpress as xp
 
 from pygenopt import *
 from pygenopt.enums import ConstraintSign
-from pygenopt.abstractsolverapi import SolverApi
+from pygenopt.solvers.abstractsolverapi import AbstractSolverApi
 
 
 @dataclass
-class XpressApi(SolverApi):
+class XpressApi(AbstractSolverApi):
     solver_name = 'Xpress'
 
     def __post_init__(self):
