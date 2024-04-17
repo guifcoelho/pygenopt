@@ -9,8 +9,8 @@
 # 4. To avoid overtime in the assembly department
 
 import pygenopt as opt
-from pygenopt.highsapi import HiGHS
-from pygenopt.xpressapi import Xpress
+from pygenopt.solvers import HighsApi
+from pygenopt.solvers import XpressApi
 
 # Decision variables for the number of products to make of each type
 produceA = opt.Variable(name="produceA", vartype=opt.VarType.INT, lowerbound=0)
@@ -58,7 +58,7 @@ constraints = [
 ]
 
 prob = (
-    opt.Problem(name="multiobjective", solver_api=HiGHS)
+    opt.Problem(name="multiobjective", solver_api=HighsApi)
 	.add_vars(*vars)
 	.add_constrs(*constraints)
 	.add_objectives(

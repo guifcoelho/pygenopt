@@ -1,6 +1,6 @@
 import pygenopt as opt
-from pygenopt.xpressapi import Xpress
-from pygenopt.highsapi import HiGHS
+from pygenopt.solvers import XpressApi
+from pygenopt.solvers import HighsApi
 
 
 def main():
@@ -13,7 +13,7 @@ def main():
     objective_function = -(x1 + x2 + 5)
 
     prob = (
-        opt.Problem(name="minimal_problem", solver_api=Xpress)
+        opt.Problem(name="minimal_problem", solver_api=XpressApi)
         .add_vars(x1, x2)
         .add_constrs(constr1, constr2)
         .set_objective(opt.ObjectiveFunction(objective_function, is_minimization=False))

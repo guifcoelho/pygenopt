@@ -18,7 +18,7 @@ setup(
     url="https://github.com/guifcoelho/pygenopt",
     python_requires=">=3.10",
     packages=[
-        "pygenopt",
+        "pygenopt", "pygenopt.solvers",
     ],
     include_package_data=True,
     install_requires=[],

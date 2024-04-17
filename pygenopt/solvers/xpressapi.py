@@ -3,15 +3,13 @@ from typing import Any, Optional
 
 import xpress as xp
 
-from pygenopt import (
-    LinearExpression, Variable, LinearConstraint, ObjectiveFunction,
-    ConstraintSign, SolverApi, VarType,
-    SolveStatus
-)
+from pygenopt import *
+from pygenopt.enums import ConstraintSign
+from pygenopt.abstractsolverapi import SolverApi
 
 
 @dataclass
-class Xpress(SolverApi):
+class XpressApi(SolverApi):
     solver_name = 'Xpress'
 
     def __post_init__(self):
@@ -21,7 +19,7 @@ class Xpress(SolverApi):
     def show_log(self):
         return self.model.getControl('OUTPUTLOG') > 0
 
-    def init_model(self) -> 'Xpress':
+    def init_model(self) -> "XpressApi":
         self.model = xp.problem()
         return self
 
@@ -38,21 +36,21 @@ class Xpress(SolverApi):
 
         return solver_var
 
-    def add_var(self, variable: Variable) -> 'Xpress':
+    def add_var(self, variable: Variable) -> "XpressApi":
         self.model.addVariable(self._to_xpvar(variable))
         return self
 
-    def add_vars(self, variables: list[Variable]) -> 'Xpress':
+    def add_vars(self, variables: list[Variable]) -> "XpressApi":
         self.model.addVariable(*[self._to_xpvar(var) for var in variables])
         return self
 
-    def del_var(self, variable: Variable) -> 'Xpress':
+    def del_var(self, variable: Variable) -> "XpressApi":
         raise NotImplementedError()
 
-    def del_vars(self, variables: list[Variable]) -> 'Xpress':
+    def del_vars(self, variables: list[Variable]) -> "XpressApi":
         raise NotImplementedError()
 
-    def add_constr(self, constraint: LinearConstraint) -> 'Xpress':
+    def add_constr(self, constraint: LinearConstraint) -> "XpressApi":
         for var in constraint.expression.elements:
             if var.column is None:
                 raise Exception("All variables need to be added to the model prior to adding constraints.")
@@ -73,7 +71,7 @@ class Xpress(SolverApi):
 
         return self
 
-    def set_objective(self, objetive_function: ObjectiveFunction | Variable | LinearExpression | float | int) -> "Xpress":
+    def set_objective(self, objetive_function: ObjectiveFunction | Variable | LinearExpression | float | int) -> "XpressApi":
         if isinstance(objetive_function, (Variable | float | int)):
             objetive_function += LinearExpression()
         if isinstance(objetive_function, LinearExpression):
@@ -90,18 +88,18 @@ class Xpress(SolverApi):
         )
         return self
 
-    def set_option(self, name: str, value) -> 'Xpress':
+    def set_option(self, name: str, value) -> "XpressApi":
         self.model.setControl(name, value)
         return self
 
     def get_option(self, name: str) -> Any:
         return self.model.getControl(name)
 
-    def fetch_solution(self) -> 'Xpress':
+    def fetch_solution(self) -> "XpressApi":
         self.solution = list(self.model.getSolution())
         return self
 
-    def fetch_duals(self) -> 'Xpress':
+    def fetch_duals(self) -> "XpressApi":
         self.duals = list(self.model.getDual())
         return self
 
@@ -118,7 +116,7 @@ class Xpress(SolverApi):
             self.fetch_duals()
         return self.duals[constraint.row]
 
-    def fetch_solve_status(self) -> 'Xpress':
+    def fetch_solve_status(self) -> "XpressApi":
         match self.model.getAttrib('SOLSTATUS'):
             case xp.SolStatus.OPTIMAL:
                 self.solve_status = SolveStatus.OPTIMUM
@@ -133,7 +131,7 @@ class Xpress(SolverApi):
 
         return self
 
-    def set_hotstart(self, columns: list[int], values: list[float]) -> 'Xpress':
+    def set_hotstart(self, columns: list[int], values: list[float]) -> "XpressApi":
         if len(columns) == self.model.attributes.cols:
             _, sorted_values_by_index = zip(*sorted(
                 [(idx, val) for idx, val in enumerate(values)],
@@ -144,7 +142,7 @@ class Xpress(SolverApi):
             self.model.addmipsol(values, columns, "hotstart")
         return self
 
-    def run(self, options: Optional[dict[str, Any]] = None) -> 'Xpress':
+    def run(self, options: Optional[dict[str, Any]] = None) -> "XpressApi":
         self.set_options(options)
         self.model.optimize()
         return self

@@ -7,8 +7,8 @@ from operator import itemgetter
 import random
 
 import pygenopt as opt
-from pygenopt.highsapi import HiGHS
-from pygenopt.xpressapi import Xpress
+from pygenopt.solvers import HighsApi
+from pygenopt.solvers import XpressApi
 
 
 random.seed(100)
@@ -34,7 +34,7 @@ def main():
     greedy_bins = solveGreedyModel()
     B = len(greedy_bins)
 
-    prob = opt.Problem(name='BinPacking', solver_api=Xpress)
+    prob = opt.Problem(name='BinPacking', solver_api=XpressApi)
 
     x = {
         (i,j): opt.Variable(f"x({i},{j})", vartype=opt.VarType.BIN)
