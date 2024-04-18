@@ -1,6 +1,6 @@
 from setuptools import setup
 
-VERSION = 'v0.1.0'
+VERSION = 'v0.2.0'
 
 readme_name = "readme.md"
 with open(readme_name) as fh:
@@ -21,5 +21,8 @@ setup(
         "pygenopt", "pygenopt.solvers",
     ],
     include_package_data=True,
-    install_requires=[],
+    install_requires=[
+        "highspy==1.7.1.dev1",
+        "numpy"
+    ],
 )
