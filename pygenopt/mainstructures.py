@@ -81,25 +81,28 @@ class LinearExpression:
         return self._multiplication(coef, False)
 
     def __eq__(self, rhs: 'LinearExpression | Variable | float | int'):
-        constr = LinearConstraint((LinearExpression() + (self - rhs), ConstraintSign.EQ))
+        rhs_ = rhs.copy() if isinstance(rhs, (LinearExpression, Variable)) else rhs
+        constr = LinearConstraint((LinearExpression() + (self.copy() - rhs_), ConstraintSign.EQ))
         constr.expression.constant *= -1
         return constr
 
     def __le__(self, rhs: 'LinearExpression | Variable | float | int'):
-        constr = LinearConstraint((LinearExpression() + (self - rhs), ConstraintSign.LEQ))
+        rhs_ = rhs.copy() if isinstance(rhs, (LinearExpression, Variable)) else rhs
+        constr = LinearConstraint((LinearExpression() + (self.copy() - rhs_), ConstraintSign.LEQ))
         constr.expression.constant *= -1
         return constr
 
     def __ge__(self, rhs: 'LinearExpression | Variable | float | int'):
-        constr = LinearConstraint((LinearExpression() + (self - rhs), ConstraintSign.GEQ))
+        rhs_ = rhs.copy() if isinstance(rhs, (LinearExpression, Variable)) else rhs
+        constr = LinearConstraint((LinearExpression() + (self.copy() - rhs_), ConstraintSign.GEQ))
         constr.expression.constant *= -1
         return constr
 
     def __neg__(self):
-        return LinearExpression() - self
+        return LinearExpression() - self.copy()
 
     def __pos__(self):
-        return LinearExpression() + self
+        return LinearExpression() + self.copy()
 
 class LinearConstraint:
     "The linear constraint class"
@@ -122,7 +125,7 @@ class LinearConstraint:
         elif isinstance(constr, tuple):
             self.expression, self.sign = constr
         else:
-            raise Exception()
+            raise TypeError(f"The constraint expression must be an inequality, not `{constr}`.")
 
         self.name = name
         self._hash = hash(f"{time.perf_counter_ns()}{random.random()}")
@@ -157,16 +160,16 @@ class Variable:
     "The decicion variable"
 
     name: Optional[str] = field(default=None)
-    vartype: VarType = field(default=VarType.CNT, repr=False)
-    lowerbound: Optional[float] = field(default=None, repr=False)
-    upperbound: Optional[float] = field(default=None, repr=False)
+    vartype: VarType = field(default=VarType.CNT)
+    lowerbound: Optional[float] = field(default=None)
+    upperbound: Optional[float] = field(default=None)
 
     column: int | None = field(default=None, init=False)
     value: float | None = field(default=None, init=False)
-    hotstart_value: float | None = field(default=None, init=False)
+    hotstart_value: float | None = field(default=None, init=False, repr=False)
 
-    _hash: str | None = field(default=None, init=False)
-    _default_name: str | None = field(default=None, init=False)
+    _hash: str | None = field(default=None, init=False, repr=False)
+    _default_name: str | None = field(default=None, init=False, repr=False)
 
     def __post_init__(self):
         self._hash = hash(f"{time.perf_counter_ns()}{random.random()}")
