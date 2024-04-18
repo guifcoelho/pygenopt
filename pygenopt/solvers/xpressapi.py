@@ -4,6 +4,7 @@ from typing import Any, Optional
 import xpress as xp
 
 from pygenopt import *
+from pygenopt import LinearConstraint, ObjectiveFunction, Variable
 from pygenopt.enums import ConstraintSign
 from pygenopt.solvers.abstractsolverapi import AbstractSolverApi
 
@@ -153,3 +154,6 @@ class XpressApi(AbstractSolverApi):
         self.set_options(options)
         self.model.optimize()
         return self
+
+    def pull_from_model(self) -> tuple[list[Variable], list[LinearConstraint], ObjectiveFunction]:
+        raise NotImplementedError()

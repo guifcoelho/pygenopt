@@ -450,5 +450,17 @@ class Problem:
             Problem(name=name, solver_api=solver_api, options=(options or dict()))
             .add_vars(variables)
             .add_constrs(constraints)
-            .set_objective(objective_function).update()
+            .set_objective(objective_function)
+            .update()
+        )
+
+    def sync_from_model(self) -> "Problem":
+        "Syncs variables, constraints and objective function from the actual optimization model."
+        variables, constraints, objective_function = self.solver.pull_from_model()
+        return (
+            Problem(name=self.name, solver_api=self.solver.__class__, options=self.options)
+            .add_vars(variables)
+            .add_constrs(constraints)
+            .set_objective(objective_function)
+            .update()
         )

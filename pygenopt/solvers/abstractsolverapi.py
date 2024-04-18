@@ -141,3 +141,8 @@ class AbstractSolverApi(ABC):
             self.duals.clear()
         self.init_model()
         return self
+
+    @abstractmethod
+    def pull_from_model(self) -> tuple[list[Variable], list[LinearConstraint], ObjectiveFunction]:
+        "Pulls the variable, constraints and objective function from the model."
+        ...

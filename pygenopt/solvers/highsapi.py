@@ -202,15 +202,9 @@ class HighsApi(AbstractSolverApi):
     def to_mps(self, path: str) -> None:
         self.model.writeModel(path)
 
-    @staticmethod
-    def load_mps(path: str) -> tuple[list[Variable], list[LinearConstraint], ObjectiveFunction]:
-        model = highspy.Highs()
-        model.setOptionValue('output_flag', 'false')
-
-        model.readModel(path)
-
-        _, _, obj_coefs, lbs, ubs, _ = model.getCols(model.numVars, list(range(model.numVars)))
-        integrality = [vartype == highspy.HighsVarType.kInteger for vartype in model.getLp().integrality_]
+    def pull_from_model(self) -> tuple[list[Variable], list[LinearConstraint], ObjectiveFunction]:
+        _, _, obj_coefs, lbs, ubs, _ = self.model.getCols(self.model.numVars, list(range(self.model.numVars)))
+        integrality = [vartype == highspy.HighsVarType.kInteger for vartype in self.model.getLp().integrality_]
         if not integrality:
             integrality = [False] * len(obj_coefs)
 
@@ -224,7 +218,7 @@ class HighsApi(AbstractSolverApi):
             )
             variables += [
                 Variable(
-                    name=model.getColName(column)[1],
+                    name=self.model.getColName(column)[1],
                     vartype=vartype,
                     lowerbound=None if vartype == VarType.BIN or lb == -highspy.kHighsInf else lb,
                     upperbound=None if vartype == VarType.BIN or ub == highspy.kHighsInf else ub,
@@ -233,17 +227,17 @@ class HighsApi(AbstractSolverApi):
 
         objective_function = ObjectiveFunction(
             sum(var * coef for var, coef in zip(variables, obj_coefs))
-            + model.getObjectiveOffset()[1],
-            is_minimization=model.getObjectiveSense()[1] == highspy.ObjSense.kMinimize
+            + self.model.getObjectiveOffset()[1],
+            is_minimization=self.model.getObjectiveSense()[1] == highspy.ObjSense.kMinimize
         )
 
         constraints = dict()
         for column, var in enumerate(variables):
-            _, rows, coefs = model.getColEntries(column)
+            _, rows, coefs = self.model.getColEntries(column)
             for row, coef in zip(rows, coefs):
                 constraints[row] = constraints.get(row, LinearExpression()) + (var * coef)
 
-        _, _, constr_lhs, constr_rhs, _ = model.getRows(model.getNumRow(), list(range(model.getNumRow())))
+        _, _, constr_lhs, constr_rhs, _ = self.model.getRows(self.model.getNumRow(), list(range(self.model.getNumRow())))
         for row, (constr_lhs, constr_rhs) in enumerate(zip(constr_lhs, constr_rhs)):
             if constr_lhs == -highspy.kHighsInf and constr_rhs != highspy.kHighsInf:
                 constraints[row] = (constraints[row] <= constr_rhs)
@@ -259,3 +253,10 @@ class HighsApi(AbstractSolverApi):
         _, list_of_constraints = zip(*sorted(list(constraints.items()), key=lambda el: el[0]))
 
         return variables, list_of_constraints, objective_function
+
+    @staticmethod
+    def load_mps(path: str) -> tuple[list[Variable], list[LinearConstraint], ObjectiveFunction]:
+        prob = HighsApi()
+        prob._set_log(False)
+        prob.model.readModel(path)
+        return prob.pull_from_model()
