@@ -135,8 +135,10 @@ class AbstractSolverApi(ABC):
 
     def clear(self) -> "AbstractSolverApi":
         "Clears the model."
-        self.solution.clear()
-        self.duals.clear()
+        if self.solution is not None:
+            self.solution.clear()
+        if self.duals is not None:
+            self.duals.clear()
         self.init_model()
         return self
 
