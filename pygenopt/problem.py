@@ -1,9 +1,10 @@
 from dataclasses import dataclass, field, InitVar
-from typing import Any, Type
+from typing import Any, Type, Optional
 from contextlib import suppress
 
 from pygenopt import Variable, LinearConstraint, ObjectiveFunction, SolveStatus, LinearExpression
 from pygenopt.solvers.abstractsolverapi import AbstractSolverApi
+from pygenopt.solvers import HighsApi
 from pygenopt.constants import INF
 
 
@@ -11,8 +12,8 @@ from pygenopt.constants import INF
 class Problem:
     "The optimization problem class"
 
-    name: str = None
-    solver_api: InitVar[Type["AbstractSolverApi"]] = None
+    name: Optional[str] = field(default=None)
+    solver_api: InitVar[Type["AbstractSolverApi"]] = field(default=None)
     options: dict[str, Any] = field(default_factory=dict)
 
     solver: "AbstractSolverApi" = field(default=None, init=False)
@@ -25,8 +26,7 @@ class Problem:
     objective_functions: list[ObjectiveFunction] = field(default_factory=list, init=False)
 
     def __post_init__(self, solver_api: Type["AbstractSolverApi"]):
-        if solver_api is not None:
-            self.solver = solver_api()
+        self.solver = solver_api() if solver_api is not None else HighsApi()
 
     @property
     def solve_status(self):
@@ -406,7 +406,7 @@ class Problem:
         "Returns a fresh instance of the optimization problem."
         if self.solver is not None:
             self.solver.clear()
-        return Problem(name=self.name, solver=self.solver, options=self.options)
+        return Problem(name=self.name, solver_api=self.solver.__class__, options=self.options)
 
     def clear_solver(self):
         """
@@ -431,3 +431,20 @@ class Problem:
     def to_mps(self, path: str) -> None:
         "Exports the model to an MPS file. It will ignore pending variables and constraints."
         self.solver.to_mps(path)
+
+    @staticmethod
+    def load_mps(path: str,
+                 name: Optional[str] = None,
+                 solver_api: Optional["AbstractSolverApi"] = None,
+                 options: Optional[dict[str, Any]] = None) -> "Problem":
+
+        from pygenopt.solvers import HighsApi
+
+        variables, constraints, objective_function = HighsApi.load_mps(path)
+
+        return (
+            Problem(name=name, solver_api=solver_api, options=(options or dict()))
+            .add_vars(variables)
+            .add_constrs(constraints)
+            .set_objective(objective_function).update()
+        )

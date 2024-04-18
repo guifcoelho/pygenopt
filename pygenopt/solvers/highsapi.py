@@ -201,3 +201,61 @@ class HighsApi(AbstractSolverApi):
 
     def to_mps(self, path: str) -> None:
         self.model.writeModel(path)
+
+    @staticmethod
+    def load_mps(path: str) -> tuple[list[Variable], list[LinearConstraint], ObjectiveFunction]:
+        model = highspy.Highs()
+        model.setOptionValue('output_flag', 'false')
+
+        model.readModel(path)
+
+        _, _, obj_coefs, lbs, ubs, _ = model.getCols(model.numVars, list(range(model.numVars)))
+        integrality = [vartype == highspy.HighsVarType.kInteger for vartype in model.getLp().integrality_]
+        if not integrality:
+            integrality = [False] * len(obj_coefs)
+
+        variables = []
+        for column, (lb, ub, is_int) in enumerate(zip(lbs, ubs, integrality)):
+            vartype = (
+                VarType.BIN if lb == 0 and ub == 1 and is_int
+                else (
+                    VarType.INT if is_int else VarType.CNT
+                )
+            )
+            variables += [
+                Variable(
+                    name=model.getColName(column)[1],
+                    vartype=vartype,
+                    lowerbound=None if vartype == VarType.BIN or lb == -highspy.kHighsInf else lb,
+                    upperbound=None if vartype == VarType.BIN or ub == highspy.kHighsInf else ub,
+                )
+            ]
+
+        objective_function = ObjectiveFunction(
+            sum(var * coef for var, coef in zip(variables, obj_coefs))
+            + model.getObjectiveOffset()[1],
+            is_minimization=model.getObjectiveSense()[1] == highspy.ObjSense.kMinimize
+        )
+
+        constraints = dict()
+        for column, var in enumerate(variables):
+            _, rows, coefs = model.getColEntries(column)
+            for row, coef in zip(rows, coefs):
+                constraints[row] = constraints.get(row, LinearExpression()) + (var * coef)
+
+        _, _, constr_lhs, constr_rhs, _ = model.getRows(model.getNumRow(), list(range(model.getNumRow())))
+        for row, (constr_lhs, constr_rhs) in enumerate(zip(constr_lhs, constr_rhs)):
+            if constr_lhs == -highspy.kHighsInf and constr_rhs != highspy.kHighsInf:
+                constraints[row] = (constraints[row] <= constr_rhs)
+
+            elif constr_lhs != -highspy.kHighsInf and constr_rhs == highspy.kHighsInf:
+                constraints[row] = LinearConstraint(constraints[row] >= constr_lhs)
+
+            elif constr_lhs != -highspy.kHighsInf and constr_rhs != highspy.kHighsInf and constr_lhs == constr_rhs:
+                constraints[row] = LinearConstraint(constraints[row] == constr_lhs)
+            else:
+                raise ValueError(f"Cannot define constraint type from {constr_lhs} <= constr <= {constr_rhs}")
+
+        _, list_of_constraints = zip(*sorted(list(constraints.items()), key=lambda el: el[0]))
+
+        return variables, list_of_constraints, objective_function
