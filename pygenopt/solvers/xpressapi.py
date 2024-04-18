@@ -153,6 +153,3 @@ class XpressApi(AbstractSolverApi):
         self.set_options(options)
         self.model.optimize()
         return self
-
-    def to_mps(self, path: str) -> None:
-        self.model.write(path, 'x')

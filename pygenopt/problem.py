@@ -26,7 +26,7 @@ class Problem:
     objective_functions: list[ObjectiveFunction] = field(default_factory=list, init=False)
 
     def __post_init__(self, solver_api: Type["AbstractSolverApi"]):
-        self.solver = solver_api() if solver_api is not None else HighsApi()
+        self.set_solver(solver_api)
 
     @property
     def solve_status(self):
@@ -245,9 +245,9 @@ class Problem:
         self.objective_functions += [objective]
         return self
 
-    def set_solver(self, solver_api: Type["AbstractSolverApi"]):
+    def set_solver(self, solver_api: Optional[Type["AbstractSolverApi"]] = None):
         "Sets the solver from the given interface."
-        self.solver = solver_api()
+        self.solver = solver_api() if solver_api is not None else HighsApi()
         return self
 
     def _update_del_vars(self):
@@ -429,19 +429,23 @@ class Problem:
         return self
 
     def to_mps(self, path: str) -> None:
-        "Exports the model to an MPS file. It will ignore pending variables and constraints."
-        self.solver.to_mps(path)
+        """
+        Exports the model to an MPS file. It will ignore pending variables and constraints,
+        and will write only the last objective function added to the problem.
+        """
+        solver = HighsApi()
+        solver.add_vars(self.variables)
+        solver.add_constrs(self.constraints)
+        solver.set_objective(self.objective_functions[-1])
+        solver.to_mps(path)
 
     @staticmethod
     def load_mps(path: str,
                  name: Optional[str] = None,
                  solver_api: Optional["AbstractSolverApi"] = None,
                  options: Optional[dict[str, Any]] = None) -> "Problem":
-
-        from pygenopt.solvers import HighsApi
-
+        "Creates a new problem from a MPS file."
         variables, constraints, objective_function = HighsApi.load_mps(path)
-
         return (
             Problem(name=name, solver_api=solver_api, options=(options or dict()))
             .add_vars(variables)

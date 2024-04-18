@@ -141,7 +141,3 @@ class AbstractSolverApi(ABC):
             self.duals.clear()
         self.init_model()
         return self
-
-    @abstractmethod
-    def to_mps(self, path: str) -> None:
-        "Exports the model to file in the MPS format."
