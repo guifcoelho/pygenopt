@@ -1,6 +1,5 @@
 import pygenopt as opt
 from pygenopt.solvers import XpressApi
-from pygenopt.solvers import HighsApi
 
 
 def main():
@@ -24,8 +23,6 @@ def main():
 
     print("x1:", x1.value)
     print("x2:", x2.value)
-
-    prob.to_mps('minimimal.mps')
 
 if __name__ == '__main__':
     main()
