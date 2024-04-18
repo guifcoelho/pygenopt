@@ -7,7 +7,6 @@ from operator import itemgetter
 import random
 
 import pygenopt as opt
-from pygenopt.solvers import HighsApi
 from pygenopt.solvers import XpressApi
 
 
