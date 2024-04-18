@@ -21,6 +21,7 @@ class Problem:
     deleting_variables: list[Variable] = field(default_factory=list, init=False)
     constraints: list[LinearConstraint] = field(default_factory=list, init=False)
     pending_constraints: list[LinearConstraint] = field(default_factory=list, init=False)
+    deleting_constraints: list[LinearConstraint] = field(default_factory=list, init=False)
     objective_functions: list[ObjectiveFunction] = field(default_factory=list, init=False)
 
     def __post_init__(self, solver_api: Type["AbstractSolverApi"]):
@@ -103,24 +104,29 @@ class Problem:
         return self
 
     def add_var(self, variable: Variable):
-        "Adds a new column to the optimization model."
+        "Adds a new column to the optimization model. Commit new variable with `problem.update()`."
         self.pending_variables += [variable]
+        with suppress(ValueError):
+            self.deleting_variables.remove(variable)
         return self
 
     def add_vars(self, *variables: list | dict | Variable):
-        "Adds some columns to the optimization model."
+        "Adds some columns to the optimization model. Commit new variables with `problem.update()`."
         for list_of_variables in variables:
             if isinstance(list_of_variables, dict):
                 list_of_variables = list_of_variables.values()
             elif isinstance(list_of_variables, Variable):
                 list_of_variables = [list_of_variables]
             self.pending_variables += list(list_of_variables)
+            for var in list_of_variables:
+                with suppress(ValueError):
+                    self.deleting_variables.remove(var)
         return self
 
     def del_var(self, variable: Variable | int):
         """
         Marks a variable (object ou column index) to be deleted from the model.
-        Run `update_model()` before solving.
+        Commit deletion with `problem.update()`.
         """
         if isinstance(variable, int):
             try:
@@ -145,27 +151,77 @@ class Problem:
     def del_vars(self, *variables):
         """
         Marks a set of variables (objects ou column indexes) to be deleted from the model.
-        Run `update_model()` before solving.
+        Commit deletion with `problem.update()`.
         """
-        if len(variables) == 1 and isinstance(variables[0], (list, tuple)):
-            variables = variables[0]
-        for variable in variables:
-            self.del_var(variable)
+        columns_in_model = [var.column for var in self.variables]
+        for list_of_vars in variables:
+            if isinstance(list_of_vars, dict):
+                list_of_vars = list_of_vars.values()
+            elif isinstance(list_of_vars, Variable):
+                list_of_vars = [list_of_vars]
+            for var in list_of_vars:
+                if var.column in columns_in_model:
+                    self.deleting_variables += [var]
+                with suppress(ValueError):
+                    self.pending_variables.remove(var)
         return self
 
     def add_constr(self, constr: LinearConstraint):
-        "Adds a new constraint to the model."
+        "Adds a new constraint to the model. Commit new constraint with `problem.update()`."
         self.pending_constraints += [constr]
+        with suppress(ValueError):
+            self.deleting_constraints.remove(constr)
         return self
 
     def add_constrs(self, *constrs: list | dict | LinearConstraint):
-        "Adds some constraints to the model."
+        "Adds some constraints to the model. Commit new constraints with `problem.update()`."
         for list_of_constrs in constrs:
             if isinstance(list_of_constrs, dict):
                 list_of_constrs = list_of_constrs.values()
             elif isinstance(list_of_constrs, LinearConstraint):
                 list_of_constrs = [list_of_constrs]
             self.pending_constraints += list(list_of_constrs)
+            for constr in list_of_constrs:
+                with suppress(ValueError):
+                    self.deleting_constraints.remove(constr)
+        return self
+
+    def del_constr(self, constr: LinearConstraint | int):
+        "Marks a constraint to be removed from the model. Commit deletion with `problem.update()`"
+        if isinstance(constr, int):
+            try:
+                constr = [
+                    constr_
+                    for constr_ in self.constraints
+                    if constr_.row == constr
+                ][0]
+            except Exception:
+                raise Exception(f"No constraint with row index {constr} was added to the model.")
+
+            self.deleting_constraints += [constr]
+            return self
+
+        if isinstance(constr, LinearConstraint):
+            if constr in self.constraints:
+                self.deleting_constraints += [constr]
+                with suppress(ValueError):
+                    self.pending_constraints.remove(constr)
+                return self
+
+    def del_constrs(self, *constraints: list | dict | LinearConstraint):
+        "Marks some constraints to be removed from the model. Commit deletion with `problem.update()`"
+        rows_in_model = [constr.row for constr in self.constraints]
+        for list_of_constrs in constraints:
+            if isinstance(list_of_constrs, dict):
+                list_of_constrs = list_of_constrs.values()
+            elif isinstance(list_of_constrs, LinearConstraint):
+                list_of_constrs = [list_of_constrs]
+
+            for constr in list_of_constrs:
+                if constr.row in rows_in_model:
+                    self.deleting_constraints += [constr]
+                with suppress(ValueError):
+                    self.pending_constraints.remove(constr)
         return self
 
     def set_objective(self, objective: ObjectiveFunction | Variable | LinearExpression | float | int):
@@ -194,11 +250,7 @@ class Problem:
         self.solver = solver_api()
         return self
 
-    def update(self):
-        """
-        Deletes and adds any pending variables and constraints to the model,
-        and sets the objective function.
-        """
+    def _update_del_vars(self):
         for deleting_var in self.deleting_variables:
             self.solver.del_var(deleting_var)  # model should delete the whole column
             for idx in range(deleting_var.column + 1, len(self.variables)):
@@ -210,6 +262,15 @@ class Problem:
                         constr.expression.elements.pop(deleting_var)
         self.deleting_variables = []
 
+    def _update_del_constrs(self):
+        for deleting_constr in self.deleting_constraints:
+            self.solver.del_constr(deleting_constr)  # Delete row
+            for idx in range(deleting_constr.row + 1, len(self.constraints)):
+                self.constraints[idx].row -= 1
+            self.constraints.remove(deleting_constr)
+        self.deleting_constraints = []
+
+    def _update_add_vars(self):
         for idx, variable in enumerate(self.pending_variables):
             variable.column = idx + len(self.variables)
             variable.set_default_name(variable.column)
@@ -217,6 +278,7 @@ class Problem:
         self.variables += self.pending_variables
         self.pending_variables = []
 
+    def _update_add_constrs(self):
         for idx, constr in enumerate(self.pending_constraints):
             constr.row = idx + len(self.constraints)
             constr.set_default_name(constr.row)
@@ -224,6 +286,15 @@ class Problem:
         self.constraints += self.pending_constraints
         self.pending_constraints = []
 
+    def update(self):
+        """
+        Deletes and adds any pending variables and constraints to the model,
+        and sets the objective function.
+        """
+        self._update_del_vars()
+        self._update_del_constrs()
+        self._update_add_vars()
+        self._update_add_constrs()
         return self
 
     def set_hotstart(self):
@@ -237,12 +308,20 @@ class Problem:
         self.solver.set_hotstart(columns, values)
         return self
 
-    def solve(self, with_hotstart: bool = False, fetch_solution: bool = True, fetch_duals: bool = False):
-        "Updates and runs the solver for the optimization problem."
+    def solve(self, update: bool = True, with_hotstart: bool = False):
+        """
+        Runs the solver for the optimization problem. If multiple objectives were added, it
+        will solve for each one setting the previous objective value as a constraint to the next iteration.
+        """
         if self.solver is None:
             raise Exception("The solver api should be set before solving.")
 
-        self.update()
+        if update:
+            self.update()
+
+        if not self.variables:
+            raise Exception("No variable was added to the problem.")
+
         if with_hotstart:
             self.set_hotstart()
 
@@ -250,44 +329,70 @@ class Problem:
             objective = self.objective_functions[0]
             self.solver.set_objective(objective)
             self.solver.run(objective.options or self.options or dict())
+            return self.fetch_solution()
 
-        else:
-            def add_constr_callback(constr: LinearConstraint):
-                self.add_constr(constr)
+        return self._solve_multiobjective()
+
+    def _solve_multiobjective(self):
+        """
+        Auxiliary method.
+
+        Runs the solver in a multiobjective fashion. It will solve for each objective setting the previous
+        objective value as a constraint to the next iteration.
+        """
+
+        added_constrs = []
+        for idx, objective in enumerate(self.objective_functions):
+            if self.solver.show_log:
+                if idx > 0:
+                    print()
+                obj_name = f"'{objective.name}' " if objective.name is not None else ""
+                print(
+                    f">> Solving for objective {obj_name}({idx+1} of {len(self.objective_functions)}, "
+                    f"sense: {'Minimization' if objective.is_minimization else 'Maximization'})"
+                )
+
+            self.solver.set_objective(objective)
+            self.solver.run(objective.options or self.options or dict())
+            self.fetch_solve_status()
+
+            if (
+                self.solve_status in [SolveStatus.FEASIBLE, SolveStatus.OPTIMUM]
+                and idx < len(self.objective_functions) - 1
+            ):
+                self.solver.fetch_solution()
+                self.solver.set_hotstart(list(range(len(self.solver.solution))), self.solver.solution)
+
+                new_constr = (
+                    objective.expression <= self.get_objectivefunction_value()
+                    if objective.is_minimization
+                    else objective.expression >= self.get_objectivefunction_value()
+                )
+                self.add_constr(new_constr)
                 self.update()
+                added_constrs += [new_constr]
+            else:
+                break
 
-            self.solver.run_multiobjective(self.objective_functions, add_constr_callback, self.options or dict())
-
-        if fetch_solution:
-            self.fetch_solution()
-
-        if fetch_duals:
-            self.fetch_duals()
-
-        return self
+        return self.fetch_solution().del_constrs(added_constrs).update()
 
     def fetch_solve_status(self):
         self.solver.fetch_solve_status()
         return self
 
     def fetch_solution(self):
-        "Retrieve all solution values after a solve."
+        "Retrieve all variable and dual values after a solve."
         self.solver.fetch_solve_status()
         if self.solve_status in [SolveStatus.FEASIBLE, SolveStatus.OPTIMUM]:
             self.solver.fetch_solution()
             for variable in self.variables:
                 variable.value = self.solver.get_solution(variable)
+            for constr in self.constraints:
+                constr.dual = self.solver.get_dual(constr)
         return self
 
     def get_objectivefunction_value(self) -> float:
         return self.solver.get_objective_value()
-
-    def fetch_duals(self):
-        "Retrieve all dual values after a solve."
-        self.solver.fetch_duals()
-        for constr in self.constraints:
-            constr.dual = self.solver.get_dual(constr)
-        return self
 
     def get_solution(self, variable: Variable) -> float:
         "Returns the solution value of a variable."

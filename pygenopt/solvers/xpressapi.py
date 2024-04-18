@@ -45,10 +45,12 @@ class XpressApi(AbstractSolverApi):
         return self
 
     def del_var(self, variable: Variable) -> "XpressApi":
-        raise NotImplementedError()
+        self.model.delVariable(variable.column)
+        return self
 
     def del_vars(self, variables: list[Variable]) -> "XpressApi":
-        raise NotImplementedError()
+        self.model.delVariable([variable.column for variable in variables])
+        return self
 
     def add_constr(self, constraint: LinearConstraint) -> "XpressApi":
         for var in constraint.expression.elements:
@@ -69,6 +71,14 @@ class XpressApi(AbstractSolverApi):
             case ConstraintSign.GEQ:
                 self.model.addConstraint(lhs >= constraint.expression.constant)
 
+        return self
+
+    def del_constr(self, constraint: LinearConstraint) -> "XpressApi":
+        self.model.delConstraint(constraint.row)
+        return self
+
+    def del_constrs(self, constraints: list[LinearConstraint]) -> "XpressApi":
+        self.model.delConstraint([constraint.row for constraint in constraints])
         return self
 
     def set_objective(self, objetive_function: ObjectiveFunction | Variable | LinearExpression | float | int) -> "XpressApi":
@@ -97,9 +107,6 @@ class XpressApi(AbstractSolverApi):
 
     def fetch_solution(self) -> "XpressApi":
         self.solution = list(self.model.getSolution())
-        return self
-
-    def fetch_duals(self) -> "XpressApi":
         self.duals = list(self.model.getDual())
         return self
 

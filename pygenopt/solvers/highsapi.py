@@ -78,6 +78,14 @@ class HighsApi(AbstractSolverApi):
         self.model.passRowName(constr.row, constr.default_name)
         return self
 
+    def del_constr(self, constr: LinearConstraint) -> "HighsApi":
+        self.model.deleteRows(1, [constr.row])
+        return self
+
+    def del_constrs(self, constrs: list[LinearConstraint]) -> "HighsApi":
+        self.model.deleteRows(len(constrs), [constr.row for constr in constrs])
+        return self
+
     def set_objective(self, objetive_function: ObjectiveFunction | Variable | LinearExpression | float | int) -> "HighsApi":
         if isinstance(objetive_function, (Variable | float | int)):
             objetive_function += LinearExpression()
@@ -107,11 +115,9 @@ class HighsApi(AbstractSolverApi):
         return self.model.getObjectiveValue()
 
     def fetch_solution(self) -> "HighsApi":
-        self.solution = list(self.model.getSolution().col_value)
-        return self
-
-    def fetch_duals(self) -> "HighsApi":
-        self.duals = list(self.model.getSolution().row_dual)
+        solver_solution = self.model.getSolution()
+        self.solution = list(solver_solution.col_value)
+        self.duals = list(solver_solution.row_dual)
         return self
 
     def get_solution(self, variable: Variable) -> float | None:
