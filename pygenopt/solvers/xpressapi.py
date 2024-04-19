@@ -156,4 +156,55 @@ class XpressApi(AbstractSolverApi):
         return self
 
     def pull_from_model(self) -> tuple[list[Variable], list[LinearConstraint], ObjectiveFunction]:
-        raise NotImplementedError()
+        numcols = self.model.attributes.cols
+        numrows = self.model.attributes.rows
+
+        variables = [
+            Variable(
+                name=xpvar.name,
+                vartype={
+                    xp.binary: VarType.BIN,
+                    xp.continuous: VarType.CNT,
+                    xp.integer: VarType.INT
+                }[xpvar.vartype],
+                lowerbound=None if xpvar.vartype == xp.binary else (xpvar.lb if xpvar.lb > -xp.infinity else None),
+                upperbound=None if xpvar.vartype == xp.binary else (xpvar.ub if xpvar.ub < xp.infinity else None)
+            )
+            for xpvar in self.model.getVariable()
+        ]
+        obj_coefs = []
+        self.model.getobj(obj_coefs, 0, numcols - 1)
+        objective_function = ObjectiveFunction(
+            sum(var*coef for var, coef in zip(variables, obj_coefs))
+            + self.model.attributes.objrhs,
+            is_minimization=self.model.attributes.objsense == 1
+        )
+
+        constraints = dict()
+        for column in range(numcols):
+            rowsind, rowscoef = [], []
+            self.model.getcols(None, rowind=rowsind, rowcoef=rowscoef, maxcoefs=numrows, first=column, last=column)
+            for rowind, rowcoef in zip(rowsind, rowscoef):
+                rowind = str(rowind)
+                constraints[rowind] = constraints.get(rowind, LinearExpression()) + float(rowcoef) * variables[column]
+
+        rowtypes, rhs = [], []
+        self.model.getrowtype(rowtypes, 0, numrows-1)
+        self.model.getrhs(rhs, 0, numrows-1)
+        xp_constrs = self.model.getConstraint()
+
+        for row, xp_constr in enumerate(xp_constrs):
+            constr_name = str(xp_constr)
+            rowtype = rowtypes[row]
+            rhs_ = float(rhs[row])
+            match rowtype:
+                case "G":
+                    constraints[constr_name] = (constraints[constr_name] >= rhs_)
+                case "L":
+                    constraints[constr_name] = (constraints[constr_name] <= rhs_)
+                case "E":
+                    constraints[constr_name] = (constraints[constr_name] == rhs_)
+                case _:
+                    raise Exception(f"Row type '{rowtype}' not implemented.")
+
+        return variables, constraints, objective_function
