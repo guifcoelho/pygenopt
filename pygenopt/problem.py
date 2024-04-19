@@ -454,8 +454,8 @@ class Problem:
             .update()
         )
 
-    def sync_from_model(self) -> "Problem":
-        "Syncs variables, constraints and objective function from the actual optimization model."
+    def sync(self) -> "Problem":
+        "Syncs (and replaces) variables, constraints and objective function from the actual optimization model."
         variables, constraints, objective_function = self.solver.pull_from_model()
         return (
             Problem(name=self.name, solver_api=self.solver.__class__, options=self.options)
