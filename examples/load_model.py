@@ -23,5 +23,8 @@ prob = opt.Problem.load_mps('load_model.mps').solve()
 print("Solve status:", prob.solve_status)
 print("Objective function value:", prob.get_objectivefunction_value())
 
+x1, x2 = prob.variables
+constr1, constr2 = prob.constraints
+
 print("x1:", prob.variables[0].value)
 print("x2:", prob.variables[1].value)
