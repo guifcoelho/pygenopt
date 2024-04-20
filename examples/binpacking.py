@@ -5,9 +5,11 @@ Binpacking example taken from `https://github.com/ERGO-Code/HiGHS/blob/master/ex
 from collections import defaultdict
 from operator import itemgetter
 import random
+from typing import Optional
 
 import pygenopt as opt
-from pygenopt.solvers import XpressApi
+from parse_solver import get_solver_api
+from pygenopt.solvers.abstractsolverapi import AbstractSolverApi
 
 
 random.seed(100)
@@ -28,12 +30,11 @@ def solveGreedyModel():
 
     return list(solution.values())
 
-def main():
-
+def get_problem(solver_api: Optional[type[AbstractSolverApi]] = None):
     greedy_bins = solveGreedyModel()
     B = len(greedy_bins)
 
-    prob = opt.Problem(name='BinPacking', solver_api=XpressApi)
+    prob = opt.Problem(name='BinPacking', solver_api=(solver_api or get_solver_api()))
 
     x = {
         (i,j): opt.Variable(f"x({i},{j})", vartype=opt.VarType.BIN)
@@ -53,6 +54,15 @@ def main():
 
     for j in range(B):
         prob.add_constr(sum(ItemWeights[i] * x[i,j] for i in range(NumberItems)) <= BinCapacity*y[j])
+
+    return prob, x, y
+
+def main():
+
+    greedy_bins = solveGreedyModel()
+    B = len(greedy_bins)
+
+    prob, x, y = get_problem()
 
     # Hot starting variables
     for j, var_y in y.items():

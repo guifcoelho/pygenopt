@@ -1,30 +1,21 @@
 import pygenopt as opt
+from parse_solver import get_solver_api
+from minimal import get_problem
 
 
-x1 = opt.Variable('x1')
-x2 = opt.Variable('x2')
+def main():
+    prob, x1, x2, *_ = get_problem()
+    prob.solve().to_mps('load_model.mps')
+    x1_val, x2_val = x1.value, x2.value
 
-constr1 = opt.LinearConstraint(x2 - x1 >= 2, 'constr1')
-constr2 = opt.LinearConstraint(x1 + x2 >= 0, 'constr2')
+    prob2 = opt.Problem.load_mps('load_model.mps', solver_api=get_solver_api()).solve()
 
-objective_function = -(x1 + x2 + 5)
+    print("Solve status:", prob2.solve_status)
+    print("Objective function value:", prob2.get_objectivefunction_value())
 
-prob = (
-    opt.Problem(name="minimal_problem")
-    .add_vars(x1, x2)
-    .add_constrs(constr1, constr2)
-    .set_objective(opt.ObjectiveFunction(objective_function, is_minimization=False))
-    .update()
-    .to_mps('load_model.mps')
-)
+    x1, x2 = prob2.variables
 
-prob = opt.Problem.load_mps('load_model.mps').solve()
+    assert x1.value == x1_val and x2.value == x2_val
 
-print("Solve status:", prob.solve_status)
-print("Objective function value:", prob.get_objectivefunction_value())
-
-x1, x2 = prob.variables
-constr1, constr2 = prob.constraints
-
-print("x1:", prob.variables[0].value)
-print("x2:", prob.variables[1].value)
+if __name__ == '__main__':
+    main()
