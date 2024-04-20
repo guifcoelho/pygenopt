@@ -207,4 +207,6 @@ class XpressApi(AbstractSolverApi):
                 case _:
                     raise Exception(f"Row type '{rowtype}' not implemented.")
 
-        return variables, constraints, objective_function
+        list_of_constraint = [constraints[str(xp_constr)] for xp_constr in xp_constrs]
+
+        return variables, list_of_constraint, objective_function
