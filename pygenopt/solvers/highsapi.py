@@ -256,7 +256,11 @@ class HighsApi(AbstractSolverApi):
 
     @staticmethod
     def load_mps(path: str) -> tuple[list[Variable], list[LinearConstraint], ObjectiveFunction]:
-        prob = HighsApi()
-        prob._set_log(False)
+        """
+        Loads a complete problem with highspy and pulls the variables,
+        constraints and objective function from the model.
+        It does not handle multiple objectives.
+        """
+        prob = HighsApi()._set_log(False)
         prob.model.readModel(path)
         return prob.pull_from_model()

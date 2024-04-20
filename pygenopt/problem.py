@@ -444,7 +444,7 @@ class Problem:
                  name: Optional[str] = None,
                  solver_api: Optional["AbstractSolverApi"] = None,
                  options: Optional[dict[str, Any]] = None) -> "Problem":
-        "Creates a new problem from a MPS file."
+        "Creates a new problem from a MPS file. It does not handle multiple objectives."
         variables, constraints, objective_function = HighsApi.load_mps(path)
         return (
             Problem(name=name, solver_api=solver_api, options=(options or dict()))
