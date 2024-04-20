@@ -308,11 +308,7 @@ class Problem:
         self.solver.set_hotstart(columns, values)
         return self
 
-    def solve(self, update: bool = True, with_hotstart: bool = False):
-        """
-        Runs the solver for the optimization problem. If multiple objectives were added, it
-        will solve for each one setting the previous objective value as a constraint to the next iteration.
-        """
+    def _solve_preamble(self, update: bool = True, with_hotstart: bool = False):
         if self.solver is None:
             raise Exception("The solver api should be set before solving.")
 
@@ -325,22 +321,30 @@ class Problem:
         if with_hotstart:
             self.set_hotstart()
 
-        if len(self.objective_functions) == 1:
-            objective = self.objective_functions[0]
-            self.solver.set_objective(objective)
-            self.solver.run(objective.options or self.options or dict())
-            return self.fetch_solution()
-
-        return self._solve_multiobjective()
-
-    def _solve_multiobjective(self):
+    def solve(self, update: bool = True, with_hotstart: bool = False):
         """
-        Auxiliary method.
+        Runs the solver for the optimization problem. If multiple objectives were added, it
+        will solve for each one setting the previous objective value as a constraint to the next iteration.
+        """
+        if len(self.objective_functions) == 1:
+            return self.solve_singleobjective(update, with_hotstart)
 
+        return self.solve_multiobjective(update, with_hotstart)
+
+    def solve_singleobjective(self, update: bool = True, with_hotstart: bool = False):
+        "Runs the solver for the optimization problem with a single objective functions."
+        self._solve_preamble(update, with_hotstart)
+        objective = self.objective_functions[0]
+        self.solver.set_objective(objective)
+        self.solver.run(objective.options or self.options or dict())
+        return self.fetch_solution()
+
+    def solve_multiobjective(self, update: bool = True, with_hotstart: bool = False):
+        """
         Runs the solver in a multiobjective fashion. It will solve for each objective setting the previous
         objective value as a constraint to the next iteration.
         """
-
+        self._solve_preamble(update, with_hotstart)
         added_constrs = []
         for idx, objective in enumerate(self.objective_functions):
             if self.solver.show_log:
