@@ -163,10 +163,11 @@ class Variable:
     vartype: VarType = field(default=VarType.CNT)
     lowerbound: Optional[float] = field(default=None)
     upperbound: Optional[float] = field(default=None)
+    hotstart: float | None = field(default=None, repr=False)
+    target: float | None = field(default=None, repr=False)
 
     column: int | None = field(default=None, init=False)
     value: float | None = field(default=None, init=False)
-    hotstart_value: float | None = field(default=None, init=False, repr=False)
 
     _hash: str | None = field(default=None, init=False, repr=False)
     _default_name: str | None = field(default=None, init=False, repr=False)
@@ -176,6 +177,21 @@ class Variable:
         if self.vartype == VarType.BIN:
             self.lowerbound = 0
             self.upperbound = 1
+
+        if self.hotstart is not None:
+            self._validate_value(self.hotstart, 'hotstart')
+
+        if self.target is not None:
+            self._validate_value(self.target, 'target')
+
+    def _validate_value(self, value: float, type) -> None:
+        lb = 0 if self.vartype == VarType.BIN else self.lowerbound
+        ub = 1 if self.vartype == VarType.BIN else self.upperbound
+        if value < lb or value > ub:
+            raise ValueError(
+                f"The {type} for the decision variable is not within its bounds: "
+                f"{value} < {lb}" if value < lb else f"{value} > {ub}"
+            )
 
     @property
     def default_name(self):
@@ -241,7 +257,16 @@ class Variable:
 
     def set_hotstart(self, value: float):
         "Sets the value to be used as initial solution on the solver."
-        self.hotstart_value = value
+        value = float(value)
+        self._validate_value(value, 'hotstart')
+        self.hotstart = float(value)
+        return self
+
+    def set_target(self, value: float):
+        "Sets the target value for the decision variable."
+        value = float(value)
+        self._validate_value(value, 'target')
+        self.target = value
         return self
 
     def clear(self):
