@@ -62,6 +62,54 @@ class HighsApi(AbstractSolverApi):
         self.model.deleteCols(len(variables), [variable.column for variable in variables])
         return self
 
+    def update_var(self, variable: Variable) -> "HighsApi":
+        lb = (
+            0 if variable.vartype == VarType.BIN
+            else (variable.lowerbound if variable.lowerbound is not None else -highspy.kHighsInf)
+        )
+        ub = (
+            1 if variable.vartype == VarType.BIN
+            else (variable.upperbound if variable.upperbound is not None else highspy.kHighsInf)
+        )
+        self.model.changeColsBounds(1, [variable.column], [lb], [ub])
+        integrality = (
+            highspy.HighsVarType.kInteger
+            if variable.vartype in [VarType.BIN, VarType.INT]
+            else highspy.HighsVarType.kContinuous
+        )
+        self.model.changeColsIntegrality(1, [variable.column], [integrality])
+        self.model.passColName(variable.column, variable.default_name)
+
+        return self
+
+    def update_vars(self, variables: list[Variable]) -> "HighsApi":
+        columns = [var.column for var in variables]
+
+        lbs = [
+            0 if var.vartype == VarType.BIN
+            else (var.lowerbound if var.lowerbound is not None else -highspy.kHighsInf)
+            for var in variables
+        ]
+        ubs = [
+            1 if var.vartype == VarType.BIN
+            else (var.upperbound if var.upperbound is not None else highspy.kHighsInf)
+            for var in variables
+        ]
+        self.model.changeColsBounds(len(variables), columns, lbs, ubs)
+
+        integralities = [
+            highspy.HighsVarType.kInteger
+            if var.vartype in [VarType.BIN, VarType.INT]
+            else highspy.HighsVarType.kContinuous
+            for var in variables
+        ]
+        self.model.changeColsIntegrality(len(variables), columns, integralities)
+
+        for var in variables:
+            self.model.passColName(var.column, var.default_name)
+
+        return self
+
     def add_constr(self, constr: LinearConstraint) -> "HighsApi":
         vars, coefs = zip(*list(constr.expression.elements.items()))
         for var in vars:

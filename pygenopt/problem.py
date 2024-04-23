@@ -5,7 +5,7 @@ from contextlib import suppress
 from pygenopt import Variable, LinearConstraint, ObjectiveFunction, SolveStatus, LinearExpression, VarType
 from pygenopt.solvers.abstractsolverapi import AbstractSolverApi
 from pygenopt.solvers import HighsApi
-from pygenopt.constants import INF
+from pygenopt.constants import INF, TOL
 
 
 @dataclass
@@ -15,6 +15,7 @@ class Problem:
     name: Optional[str] = field(default=None)
     solver_api: InitVar[Type["AbstractSolverApi"]] = field(default=None)
     options: dict[str, Any] = field(default_factory=dict)
+    decimal_tol: float = field(default=TOL)
 
     solver: "AbstractSolverApi" = field(default=None, init=False)
     variables: list[Variable] = field(default_factory=list, init=False)
@@ -252,7 +253,7 @@ class Problem:
         self.solver = solver_api() if solver_api is not None else HighsApi()
         return self
 
-    def _update_del_vars(self):
+    def update_del_vars(self):
         for deleting_var in self.deleting_variables:
             self.solver.del_var(deleting_var)  # model should delete the whole column
             for idx in range(deleting_var.column + 1, len(self.variables)):
@@ -264,7 +265,7 @@ class Problem:
                         constr.expression.elements.pop(deleting_var)
         self.deleting_variables = []
 
-    def _update_del_constrs(self):
+    def update_del_constrs(self):
         for deleting_constr in self.deleting_constraints:
             self.solver.del_constr(deleting_constr)  # Delete row
             for idx in range(deleting_constr.row + 1, len(self.constraints)):
@@ -272,7 +273,7 @@ class Problem:
             self.constraints.remove(deleting_constr)
         self.deleting_constraints = []
 
-    def _update_add_vars(self):
+    def update_add_vars(self):
         for idx, variable in enumerate(self.pending_variables):
             variable.column = idx + len(self.variables)
             variable.set_default_name(variable.column)
@@ -280,7 +281,7 @@ class Problem:
         self.variables += self.pending_variables
         self.pending_variables = []
 
-    def _update_add_constrs(self):
+    def update_add_constrs(self):
         for idx, constr in enumerate(self.pending_constraints):
             constr.row = idx + len(self.constraints)
             constr.set_default_name(constr.row)
@@ -288,15 +289,19 @@ class Problem:
         self.constraints += self.pending_constraints
         self.pending_constraints = []
 
+    def update_vars(self):
+        self.solver.update_vars(self.variables)
+
     def update(self) -> "Problem":
         """
         Deletes and adds any pending variables and constraints to the model,
         and sets the objective function.
         """
-        self._update_del_vars()
-        self._update_del_constrs()
-        self._update_add_vars()
-        self._update_add_constrs()
+        self.update_del_vars()
+        self.update_del_constrs()
+        self.update_add_vars()
+        self.update_add_constrs()
+        self.update_vars()
         return self
 
     def set_hotstart(self) -> "Problem":
@@ -327,13 +332,6 @@ class Problem:
         if with_hotstart:
             self.set_hotstart()
 
-    def get_target_var_values_objective(self) -> ObjectiveFunction:
-        return ObjectiveFunction(
-            sum(var.target - var for var in self.variables),
-            is_minimization=True,
-            name="target_var_values_objective"
-        )
-
     def solve(self, update: bool = True, with_hotstart: bool = False, with_target: bool = False) -> "Problem":
         """
         Runs the solver for the optimization problem. If multiple objectives were set, it
@@ -346,22 +344,80 @@ class Problem:
             - `with_hotstart` (bool, default: False): Solves the problem using the hotstart solution.
 
             - `with_target` (bool, default: False): Adds a first step where the target values for the
-            decision variables will try to be met. This condition will be added as a constraint to the
-            original model, which will then be solved as usual. At the end, all modifications to the
-            original model will be erased.
+            decision variables will try to be met. Any variable with its target met will have its bounds
+            changed to the target value. Then, the optimization problem will return to the original one
+            to be solved as usual.
         """
         if with_target:
-            self.objective_functions = [self.get_target_var_values_objective()]+self.objective_functions
-            var_targets_constr_row = len(self.constraints)
+            return self.solve_withtarget(update, with_hotstart)
 
         if len(self.objective_functions) == 1:
             return self.solve_singleobjective(update, with_hotstart)
 
-        self.solve_multiobjective(update, with_hotstart)
+        return self.solve_multiobjective(update, with_hotstart)
 
-        if with_target:
-            self.objective_functions.pop(0)
-            self.del_constr(var_targets_constr_row).update()
+    def solve_withtarget(self, update: bool = True, with_hotstart: bool = False) -> "Problem":
+        self._solve_preamble(update, with_hotstart)
+
+        # Filter variables which have a target value.
+        variables_with_target = [var for var in self.variables if var.target is not None]
+
+        # Add new auxiliary variables and constraints to compute the absolute value for the
+        # difference between the solution and target.
+        auxiliary_variables: list[Variable] = []
+        for idx, var in enumerate(variables_with_target):
+            aux_var = Variable(vartype=VarType.CNT, lowerbound=0)
+            aux_var.column = idx + len(self.variables)
+            aux_var.set_default_name(aux_var.column)
+            auxiliary_variables += [aux_var]
+        self.solver.add_vars(auxiliary_variables)
+
+        auxiliary_constrs: list[LinearConstraint] = []
+        for var, aux_var in zip(variables_with_target, auxiliary_variables):
+            auxiliary_constrs += [(aux_var >= var - var.target)]
+            auxiliary_constrs += [(aux_var >= -(var - var.target))]
+        self.solver.add_constrs(auxiliary_constrs)
+
+        # Add the objective function to minimize the sum of auxiliary variables.
+        self.solver.set_objective(ObjectiveFunction(
+            sum(auxiliary_variables),
+            is_minimization=True,
+            name="target_var_values_objective"
+        ))
+        self.solver.run(self.options or dict())
+        self.fetch_solution()
+
+        # Back the original bounds up, and change them to the target value where applicable.
+        original_bounds: dict[int, tuple[float, float]] = dict()
+        for idx, (var, aux_var) in enumerate(zip(variables_with_target, auxiliary_variables)):
+            if var.target is None and abs(var.target-var.value) < self.decimal_tol:
+                original_bounds[idx] = (var.lowerbound, var.upperbound)
+                var.lowerbound, var.upperbound = [var.target]*2
+        self.update_vars()
+
+        # Back the original hotstart values up, and change them to the solution found in the previous step.
+        original_hotstart: list[float] = [None]*len(self.variables)
+        for idx, var in enumerate(self.variables):
+            original_hotstart[idx] = var.hotstart
+            var.hotstart = var.value
+        self.set_hotstart()
+
+        # Delete auxiliary variables and constraints
+        self.solver.del_vars(auxiliary_variables)
+        self.solver.del_constrs(auxiliary_constrs)
+
+        # Solve the original problem.
+        self.solve(update, with_hotstart, False).fetch_solution()
+
+        # Return bounds back to the original values.
+        for var_idx, (lb, ub) in original_bounds.items():
+            variables_with_target[var_idx].lowerbound = lb
+            variables_with_target[var_idx].upperbound = ub
+        self.update_vars()
+
+        # Return hotstart back to the original values.
+        for idx, hotstart in enumerate(original_hotstart):
+            self.variables[idx].hotstart = hotstart
 
         return self
 

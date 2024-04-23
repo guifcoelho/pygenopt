@@ -49,6 +49,17 @@ class AbstractSolverApi(ABC):
         return self
 
     @abstractmethod
+    def update_var(self, variable: Variable) -> "AbstractSolverApi":
+        "Updates all info and params regarding the decision variable."
+        ...
+
+    def update_vars(self, variables: list[Variable]) -> "AbstractSolverApi":
+        "Updates all info and params regarding the decision variables."
+        for var in variables:
+            self.update_var(var)
+        return self
+
+    @abstractmethod
     def add_constr(self, constraint: LinearConstraint) -> "AbstractSolverApi":
         "Adds a contraint to the solver."
         ...
