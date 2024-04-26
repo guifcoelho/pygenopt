@@ -47,13 +47,13 @@ def get_problem(solver_api: Optional[type[AbstractSolverApi]] = None):
     }
     prob.add_vars(x, y)
 
-    prob.set_objective(opt.sum(y))
+    prob.set_objective(opt.Sum(y))
 
     for i in range(NumberItems):
-        prob.add_constr(sum(x[i,j] for j in range(B)) == 1)
+        prob.add_constr(opt.Sum(x[i,j] for j in range(B)) == 1)
 
     for j in range(B):
-        prob.add_constr(sum(ItemWeights[i] * x[i,j] for i in range(NumberItems)) <= BinCapacity*y[j])
+        prob.add_constr(opt.Sum(ItemWeights[i] * x[i,j] for i in range(NumberItems)) <= BinCapacity*y[j])
 
     return prob, x, y
 
