@@ -332,10 +332,24 @@ class Problem:
         if with_hotstart:
             self.set_hotstart()
 
+    def set_solve_objective(self, objective: ObjectiveFunction):
+        "Sets the current objective function to be solved for into the solver."
+        self.current_objective = objective
+        self.solver.set_objective(objective)
+
     def solve(self, update: bool = True, with_hotstart: bool = False, with_target: bool = False) -> "Problem":
         """
-        Runs the solver for the optimization problem. If multiple objectives were set, it
-        will solve for each one using the previous objective value as a constraint to the next iteration.
+        Runs the solver for the optimization problem. This is a wrapper method for all optimization strategies:
+
+            - Single objective: If only 1 objective was added to the problem, then solves for it.
+
+            - Multiple objectives: If more than 1 objective was added to the problem, then solves for each one
+            using the previous result value as a constraint to the next iteration.
+
+            - Variables with target values: Adds a first step where the target values for the
+            decision variables will try to be met. Any variable with target met will have its bounds
+            changed to the target value, and then the optimization problem will be returned to its original
+            form to be solved as usual.
 
         Args:
 
@@ -343,10 +357,8 @@ class Problem:
 
             - `with_hotstart` (bool, default: False): Solves the problem using the hotstart solution.
 
-            - `with_target` (bool, default: False): Adds a first step where the target values for the
-            decision variables will try to be met. Any variable with its target met will have its bounds
-            changed to the target value. Then, the optimization problem will return to the original one
-            to be solved as usual.
+            - `with_target` (bool, default: False): Whether or not it should solve for the decision
+            variables targets first.
         """
         if with_target:
             return self.solve_withtarget(update, with_hotstart)
@@ -379,8 +391,8 @@ class Problem:
         self.solver.add_constrs(auxiliary_constrs)
 
         # Add the objective function to minimize the sum of auxiliary variables.
-        self.solver.set_objective(ObjectiveFunction(
-            sum(auxiliary_variables),
+        self.set_solve_objective(ObjectiveFunction(
+            sum(aux_var/var.target for var, aux_var in zip(variables_with_target, auxiliary_variables)),
             is_minimization=True,
             name="target_var_values_objective"
         ))
@@ -425,7 +437,7 @@ class Problem:
         "Runs the solver for the optimization problem with a single objective functions."
         self._solve_preamble(update, with_hotstart)
         objective = self.objective_functions[0]
-        self.solver.set_objective(objective)
+        self.set_solve_objective(objective)
         options = objective.options if len(objective.options) > 0 else (self.options or dict())
         self.solver.run(options)
         return self.fetch_solution()
@@ -447,7 +459,7 @@ class Problem:
                     f"sense: {'Minimization' if objective.is_minimization else 'Maximization'})"
                 )
 
-            self.solver.set_objective(objective)
+            self.set_solve_objective(objective)
 
             options = objective.options if len(objective.options) > 0 else (self.options or dict())
             self.solver.run(options)
@@ -486,6 +498,7 @@ class Problem:
                 variable.value = self.solver.get_solution(variable)
             for constr in self.constraints:
                 constr.dual = self.solver.get_dual(constr)
+            self.current_objective.value = self.get_objectivefunction_value()
         return self
 
     def get_objectivefunction_value(self) -> float:
@@ -500,14 +513,14 @@ class Problem:
         return self.solver.get_dual(constraint)
 
     def clear(self) -> "Problem":
-        "Returns a fresh instance of the optimization problem."
+        "Returns a fresh instance of the optimization problem and clears the solver object."
         if self.solver is not None:
             self.solver.clear()
         return Problem(name=self.name, solver_api=self.solver.__class__, options=(self.options or dict()))
 
     def clear_solver(self) -> "Problem":
         """
-        Clears the solver but keeps the optimization problem.
+        Returns the optimization problem to a pre-update state and clears the solver object.
         Running `update()` will rebuild the solver model with the previous
         variables, constraints and objective function.
         """
@@ -523,6 +536,9 @@ class Problem:
 
         if self.solver is not None:
             self.solver.clear()
+
+        self.current_objective = None
+
         return self
 
     def to_mps(self, path: str) -> None:
@@ -551,8 +567,17 @@ class Problem:
             .update()
         )
 
-    def sync(self) -> "Problem":
-        "Syncs (and replaces) variables, constraints and objective function from the actual optimization model."
+    def rebuild_solver_model(self) -> "Problem":
+        "Resets the solver model and rebuilds it according to the current optimization problem."
+        self.solver.clear()
+        self.solver.add_vars(self.variables)
+        self.solver.add_constrs(self.constraints)
+
+    def pull_from_solver(self) -> "Problem":
+        """
+        Pulls all variables, constraints, and the objective function from the actual model and returns a fresh
+        instance of the optimization problem.
+        """
         variables, constraints, objective_function = self.solver.pull_from_model()
         return (
             Problem(name=self.name, solver_api=self.solver.__class__, options=(self.options or dict()))
