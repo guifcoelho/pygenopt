@@ -53,6 +53,36 @@ class XpressApi(AbstractSolverApi):
         self.model.delVariable([variable.column for variable in variables])
         return self
 
+    def update_var(self, variable: Variable) -> "XpressApi":
+        return self.update_vars([variable])
+
+    def update_vars(self, variables: list[Variable]) -> "XpressApi":
+        lbs, ubs, columns = zip(*[
+            (
+                -xp.infinity if var.lowerbound is None else var.lowerbound,
+                xp.infinity if var.upperbound is None else var.upperbound,
+                var.column
+            )
+            for var in variables
+        ])
+        self.model.chgbounds(columns, ['L']*len(columns), lbs)
+        self.model.chgbounds(columns, ['U']*len(columns), ubs)
+
+        match_types = {
+            VarType.CNT: 'C',
+            VarType.BIN: 'B',
+            VarType.INT: 'I'
+        }
+        col_types = [match_types[var.vartype] for var in variables]
+        self.model.chgcoltype(columns, col_types)
+
+        xpvars = self.model.getVariable(columns)
+        for var, xpvar in zip(variables, xpvars):
+            xpvar.name = var.default_name
+        self.model.addVariable(xpvars)
+
+        return self
+
     def add_constr(self, constraint: LinearConstraint) -> "XpressApi":
         for var in constraint.expression.elements:
             if var.column is None:
