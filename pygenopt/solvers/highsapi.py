@@ -38,14 +38,13 @@ class HighsApi(AbstractSolverApi):
         return self.add_vars([variable])
 
     def add_vars(self, variables: list[Variable]) -> "HighsApi":
-        lbs = [
-            0 if var.vartype == VarType.BIN else (-highspy.kHighsInf if var.lowerbound is None else var.lowerbound)
+        lbs, ubs = zip(*[
+            (
+                -highspy.kHighsInf if var.lowerbound is None else var.lowerbound,
+                highspy.kHighsInf if var.upperbound is None else var.upperbound
+            )
             for var in variables
-        ]
-        ubs = [
-            1 if var.vartype == VarType.BIN else (highspy.kHighsInf if var.upperbound is None else var.upperbound)
-            for var in variables
-        ]
+        ])
         self.model.addVars(len(variables), lbs, ubs)
         for var in variables:
             self.model.passColName(var.column, var.default_name)
@@ -63,44 +62,23 @@ class HighsApi(AbstractSolverApi):
         return self
 
     def update_var(self, variable: Variable) -> "HighsApi":
-        lb = (
-            0 if variable.vartype == VarType.BIN
-            else (variable.lowerbound if variable.lowerbound is not None else -highspy.kHighsInf)
-        )
-        ub = (
-            1 if variable.vartype == VarType.BIN
-            else (variable.upperbound if variable.upperbound is not None else highspy.kHighsInf)
-        )
-        self.model.changeColsBounds(1, [variable.column], [lb], [ub])
-        integrality = (
-            highspy.HighsVarType.kInteger
-            if variable.vartype in [VarType.BIN, VarType.INT]
-            else highspy.HighsVarType.kContinuous
-        )
-        self.model.changeColsIntegrality(1, [variable.column], [integrality])
-        self.model.passColName(variable.column, variable.default_name)
-
-        return self
+        return self.update_vars([variable])
 
     def update_vars(self, variables: list[Variable]) -> "HighsApi":
-        columns = [var.column for var in variables]
-
-        lbs = [
-            0 if var.vartype == VarType.BIN
-            else (var.lowerbound if var.lowerbound is not None else -highspy.kHighsInf)
+        lbs, ubs, columns = zip(*[
+            (
+                -highspy.kHighsInf if var.lowerbound is None else var.lowerbound,
+                highspy.kHighsInf if var.upperbound is None else var.upperbound,
+                var.column
+            )
             for var in variables
-        ]
-        ubs = [
-            1 if var.vartype == VarType.BIN
-            else (var.upperbound if var.upperbound is not None else highspy.kHighsInf)
-            for var in variables
-        ]
+        ])
         self.model.changeColsBounds(len(variables), columns, lbs, ubs)
 
+        kInteger = highspy.HighsVarType.kInteger
+        kContinuous = highspy.HighsVarType.kContinuous
         integralities = [
-            highspy.HighsVarType.kInteger
-            if var.vartype in [VarType.BIN, VarType.INT]
-            else highspy.HighsVarType.kContinuous
+            kInteger if var.vartype in [VarType.BIN, VarType.INT] else kContinuous
             for var in variables
         ]
         self.model.changeColsIntegrality(len(variables), columns, integralities)
