@@ -280,7 +280,8 @@ class ObjectiveFunction:
     expression: "LinearExpression" = field(default_factory=LinearExpression)
     is_minimization: bool = True
     name: str | None = field(default=None)
-    options: dict[str, Any] = field(default_factory=dict)
+    options: dict[str, Any] = field(default_factory=dict, hash=False, repr=False)
+    value: float = field(default=None, init=False, hash=False)
 
     def __post_init__(self):
         self.expression += LinearExpression()
