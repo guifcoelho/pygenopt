@@ -42,6 +42,9 @@ class XpressApi(AbstractSolverApi):
         return self
 
     def add_vars(self, variables: list[Variable]) -> "XpressApi":
+        if not variables:
+            return self
+
         self.model.addVariable(*[self._to_xpvar(var) for var in variables])
         return self
 
@@ -50,6 +53,9 @@ class XpressApi(AbstractSolverApi):
         return self
 
     def del_vars(self, variables: list[Variable]) -> "XpressApi":
+        if not variables:
+            return self
+
         self.model.delVariable([variable.column for variable in variables])
         return self
 
@@ -57,6 +63,9 @@ class XpressApi(AbstractSolverApi):
         return self.update_vars([variable])
 
     def update_vars(self, variables: list[Variable]) -> "XpressApi":
+        if not variables:
+            return self
+
         lbs, ubs, columns = zip(*[
             (
                 -xp.infinity if var.lowerbound is None else var.lowerbound,
@@ -109,6 +118,9 @@ class XpressApi(AbstractSolverApi):
         return self
 
     def del_constrs(self, constraints: list[LinearConstraint]) -> "XpressApi":
+        if not constraints:
+            return self
+
         self.model.delConstraint([constraint.row for constraint in constraints])
         return self
 

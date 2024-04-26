@@ -38,6 +38,9 @@ class HighsApi(AbstractSolverApi):
         return self.add_vars([variable])
 
     def add_vars(self, variables: list[Variable]) -> "HighsApi":
+        if not variables:
+            return self
+
         lbs, ubs = zip(*[
             (
                 -highspy.kHighsInf if var.lowerbound is None else var.lowerbound,
@@ -58,6 +61,9 @@ class HighsApi(AbstractSolverApi):
         return self
 
     def del_vars(self, variables: list[Variable]) -> "HighsApi":
+        if not variables:
+            return self
+
         self.model.deleteCols(len(variables), [variable.column for variable in variables])
         return self
 
@@ -65,6 +71,9 @@ class HighsApi(AbstractSolverApi):
         return self.update_vars([variable])
 
     def update_vars(self, variables: list[Variable]) -> "HighsApi":
+        if not variables:
+            return self
+
         lbs, ubs, columns = zip(*[
             (
                 -highspy.kHighsInf if var.lowerbound is None else var.lowerbound,
@@ -109,6 +118,8 @@ class HighsApi(AbstractSolverApi):
         return self
 
     def del_constrs(self, constrs: list[LinearConstraint]) -> "HighsApi":
+        if not constrs:
+            return self
         self.model.deleteRows(len(constrs), [constr.row for constr in constrs])
         return self
 
